@@ -1,0 +1,74 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ===== Entornos virtuales =====
+.venv/
+.venv-wsl/
+~/.venv-ue6/
+venv/
+env/
+ENV/
+.python-version
+
+# ===== PyCharm / IDEs =====
+.idea/
+.vscode/
+*.iml
+
+# ===== Datos (NUNCA versionar: datos de menores de edad) =====
+# Calificaciones y asistencia de estudiantes = datos sensibles.
+# Mantener SOLO en F: y en data/ local. Jamas subir a git.
+data/
+*.xlsb
+*.xlsx
+*.xls
+*.csv
+*.parquet
+*.feather
+# Temporales de Excel
+~$*
+*.tmp
+
+# ===== Modelos entrenados / artefactos =====
+models/
+*.keras
+*.h5
+*.pb
+saved_model/
+*.tfdf
+checkpoints/
+
+# ===== Logs y reportes generados =====
+logs/
+reports/figures/
+mlruns/
+*.log
+
+# ===== Notebooks =====
+.ipynb_checkpoints/
+
+# ===== Caches de herramientas =====
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ===== Secretos =====
+.env
+.env.local
+*.pem
+*.key
+
+# ===== Sistema operativo =====
+Thumbs.db
+.DS_Store
+desktop.ini

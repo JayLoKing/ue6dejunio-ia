@@ -1,0 +1,105 @@
+# ============================================================
+# Configuracion del pipeline de datos y entrenamiento.
+#
+# Este archivo concentra TODO lo que cambia segun la estructura de los
+# registros Excel. Cuando confirmes detalles con los docentes (p.ej. si
+# control de lectura suma a HACER), edita AQUI, no el codigo.
+# ============================================================
+
+paths:
+  # Sobrescribible por la variable de entorno UE6_DATA_ROOT
+  data_root: "/mnt/f/DATA PARA MODELO IA PROYECTO DE GRADO"
+  registros_2026: "Registros 2026"
+  registros_pasados: "REGISTROS DE AÑOS PASADOS"
+  interim_dir: "./data/interim"
+  processed_dir: "./data/processed"
+  models_dir: "./models"
+
+# Patrones de nombre de archivo (varian levemente por gestion: .xlsb vs .xlsx,
+# mayusculas/minusculas). Se hace match case-insensitive y por "contiene".
+archivos:
+  registro_trimestre: "Registro_{trimestre}_Trimestre"   # _Primaria Registro_1_Trimestre 2026.xlsb
+  asistencia: "Asistencia"                                 # Asistencia Mensual ... / ASISTENCIA MENSUAL 2025
+  centralizador: "Centralizador"                           # Centralizador Anual por Area ...
+  control_lectura: "Control de Lectura"
+  control_tareas: "Control de Tareas"
+
+# Ponderacion oficial RM 0001/2026 (Art. 29). Suma = 100.
+ponderacion:
+  ser: 10
+  saber: 45
+  hacer: 40
+  autoevaluacion: 5
+nota_aprobacion: 51   # < 51 = reprobado (criterio Ministerio)
+
+# Areas curriculares y el nombre de su hoja en el registro trimestral.
+# Nombres del template de años pasados (2024-2025). El match es tolerante a
+# acentos/espacios/mayusculas. Las areas tecnicas (musica/religion) que el
+# docente de curso no califica salen vacias y se ignoran automaticamente.
+areas:
+  - { nombre: "Matematicas",      hoja: "MATE" }
+  - { nombre: "Comunicacion y Lenguajes", hoja: "LENG" }
+  - { nombre: "Ciencias Sociales", hoja: "CIEN SOC" }
+  - { nombre: "Ciencias Naturales", hoja: "CIEN NAT" }
+  - { nombre: "Educacion Fisica", hoja: "ED FISICA" }
+  - { nombre: "Educacion Musical", hoja: "ED MUSICA" }
+  - { nombre: "Artes Plasticas",  hoja: "ARTES PL" }
+  - { nombre: "Tecnologia",       hoja: "TECN TECN" }
+  - { nombre: "Religion",         hoja: "RELIGION" }
+
+# NOTA: las columnas de cada dimension se DETECTAN por encabezado en tiempo de
+# lectura (registro_loader._localizar_columnas), porque el nº de criterios
+# varia por area. No hay indices fijos que mantener aqui.
+
+# Hoja "PROMEDIOS POR TRIMESTRE" del centralizador (fuente de etiquetas/labels
+# en años pasados). Verificado en gestion 2025.
+layout_centralizador:
+  hoja: "PROMEDIOS POR TRIMESTRE"
+  fila_inicio_estudiantes: 10
+  col_nro: 0
+  col_nombre: 1
+  col_prom_t1: 4
+  col_prom_t2: 5
+  col_prom_t3: 6
+  col_promedio_final: 8
+  col_situacion: 11   # texto libre: "perdio el año", etc.
+
+# Umbrales de clasificacion de riesgo (sobre promedio del trimestre, 0-100).
+# Categorias del doc (HU-019 / tabla RiskPredictions).
+riesgo:
+  riesgo_critico_max: 50    # <= 50 -> RiesgoCritico (reprobado)
+  en_riesgo_max: 66         # 51-66 -> EnRiesgo
+  sin_riesgo_max: 84        # 67-84 -> SinRiesgo
+  # > 84 -> Sobresaliente
+
+# Asistencia: se calcula el % por trimestre contando marcas en las hojas
+# mensuales (mas confiable que las columnas-resumen, que son inconsistentes).
+asistencia:
+  umbral_inasistencia_pct: 20.0
+  col_nombre: 1
+  primera_col_dia: 2          # primera columna de marca diaria
+  # Meses que componen cada trimestre (nombre EXACTO de la hoja, mayusculas).
+  meses_por_trimestre:
+    1: ["FEBRERO", "MARZO", "ABRIL"]
+    2: ["MAYO", "JUNIO", "JULIO"]
+    3: ["AGOSTO", "SEPTIEMBRE", "OCTUBRE"]
+  # Significado de cada marca (cuenta como asistio o falto).
+  marca_presente: ["."]
+  marca_retraso: ["R"]        # llego tarde pero asistio -> cuenta como presente
+  marca_falta: ["F"]          # falta (inasistencia)
+  marca_licencia: ["L"]       # falta justificada -> cuenta como presente
+  # attendance_pct = (presente + retraso + licencia) / dias_habiles * 100
+
+# Features opcionales aun NO confirmadas con docentes (preparado para futuro).
+# Cuando se confirme si lectura/tareas inciden en dimensiones, activar aqui.
+features_opcionales:
+  incluir_control_lectura: false
+  incluir_control_tareas: false
+
+# Entrenamiento
+entrenamiento:
+  semilla: 42
+  test_size: 0.2
+  # Gestiones usadas como datos de entrenamiento (tienen ciclo completo).
+  gestiones_entrenamiento: [2023, 2024, 2025]
+  modelo: "gradient_boosted_trees"   # tfdf: random_forest | gradient_boosted_trees

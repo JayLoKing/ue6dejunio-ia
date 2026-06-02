@@ -1,0 +1,40 @@
+# ============================================================
+# Dependencias de runtime - Modelo predictivo de riesgo academico
+# U.E. "6 de Junio"
+#
+# IMPORTANTE: instalar SOLO en Python 3.11 dentro de WSL2 (Ubuntu).
+# TensorFlow y TensorFlow Decision Forests NO funcionan en Windows
+# nativo ni en Python 3.13/3.14. Ver README.md -> "Entorno WSL2".
+# ============================================================
+
+# --- Machine Learning (entrenamiento en CPU; no se usa GPU) ---
+# TF-DF NO tiene wheel para Windows (solo Linux/Mac). Por eso el entrenamiento
+# corre en WSL2. El marcador evita que el sync de PyCharm en Windows falle.
+# Par 2.17.0 / 1.10.0: combo estable con protobuf compatible. NO subir a
+# tf 2.18 + tfdf 1.11 -> rompen por conflicto de protobuf (gencode 6.x vs 5.x).
+tensorflow==2.17.0            # motor base (Keras + ejecucion)
+tensorflow_decision_forests==1.10.0 ; sys_platform == "linux"   # modelo principal (Arboles / GBT) - solo Linux/WSL2
+
+# --- Datos ---
+pandas==2.2.3
+numpy==1.26.4                 # pin por compatibilidad con TF 2.18
+scikit-learn==1.5.2          # split estratificado + metricas (no es el modelo)
+pyarrow==18.1.0              # backend parquet para data/processed
+pyxlsb==1.0.10               # lectura de .xlsb (registros 2026)
+openpyxl==3.1.5              # lectura de .xlsx (registros 2023-2025)
+unidecode==1.3.8            # normalizacion de nombres (tildes/enie)
+
+# --- Configuracion / validacion ---
+pydantic==2.9.2
+pydantic-settings==2.6.1
+pyyaml==6.0.2
+python-dotenv==1.0.1
+
+# --- Servicio de inferencia (consumido por la API Spring Boot) ---
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# --- Utilidades ---
+joblib==1.4.2
+rich==13.9.4                 # logs legibles en consola
+typer==0.13.1                # CLI de pipelines
