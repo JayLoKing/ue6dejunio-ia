@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import math
+from contextlib import contextmanager
 
 import pytest
 
@@ -17,6 +19,24 @@ from ue6_ia.contract import (
     expandir,
     puede_predecir,
 )
+
+
+@contextmanager
+def caplog_vacio():
+    """Captura los avisos del modulo para poder afirmar que NO hubo ninguno."""
+    registros: list[logging.LogRecord] = []
+
+    class Recolector(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            registros.append(record)
+
+    log = logging.getLogger("ue6_ia.contract")
+    handler = Recolector(level=logging.WARNING)
+    log.addHandler(handler)
+    try:
+        yield registros
+    finally:
+        log.removeHandler(handler)
 
 
 def obs(**over) -> ObservacionMateria:
@@ -35,18 +55,16 @@ def obs(**over) -> ObservacionMateria:
 
 
 class TestDimensiones:
-    """Los topes son los de la RM 0001/2026, y los mismos que la BDD hace cumplir."""
-
-    def test_los_topes_suman_cien(self):
-        assert sum(d.tope for d in DIMENSIONES) == 100
+    """Los nombres son los que la BDD acepta; cuanto vale cada uno lo dice `Escala`."""
 
     def test_los_nombres_son_los_de_la_bdd(self):
-        assert [d.nombre for d in DIMENSIONES] == [
-            "being",
-            "knowing",
-            "doing",
-            "deciding",
-        ]
+        assert list(DIMENSIONES) == ["being", "knowing", "doing", "deciding"]
+
+    def test_las_dimensiones_no_cargan_su_propio_tope(self):
+        # Un tope pegado a la dimension seria una segunda fuente de verdad para un
+        # numero que cambia con la gestion, y el primero en leerlo normalizaria
+        # datos de 2023 contra los topes de hoy sin que falle nada.
+        assert all(isinstance(d, str) for d in DIMENSIONES)
 
 
 class TestDisparo:
@@ -73,7 +91,7 @@ class TestEscala:
     def test_la_nota_maxima_de_cada_dimension_vale_cien(self):
         f = expandir(obs(being=[10.0], knowing=[45.0], doing=[40.0], deciding=[5.0]))
         for d in DIMENSIONES:
-            assert f[f"{d.nombre}_mean"] == pytest.approx(100.0)
+            assert f[f"{d}_mean"] == pytest.approx(100.0)
 
     def test_la_mitad_del_tope_vale_cincuenta(self):
         f = expandir(obs(being=[5.0], knowing=[22.5]))
@@ -109,6 +127,28 @@ class TestEscalaPorGestion:
         assert escala_de(2031) is ESCALA_VIGENTE
         assert escala_de(None) is ESCALA_VIGENTE
 
+    def test_una_gestion_sin_mapear_avisa(self, caplog):
+        """Normalizar contra la escala equivocada no rompe nada, y ese es el peligro."""
+        with caplog.at_level(logging.WARNING, logger="ue6_ia.contract"):
+            escala_de(2019)
+        assert "2019" in caplog.text
+
+    def test_sin_gestion_no_avisa(self):
+        # Es el caso del sistema, donde la vigente es la respuesta correcta.
+        with caplog_vacio() as registros:
+            escala_de(None)
+        assert registros == []
+
+    def test_la_suma_admite_pesos_no_enteros(self):
+        # Un reparto valido con decimales no puede rebotar por como flota el binario.
+        Escala(being=10.0, knowing=45.1, doing=39.9, deciding=5.0)
+
+    def test_una_dimension_sin_puntos_se_rechaza(self):
+        # Suma 100 igual, pero un tope en cero pasa las guardas de rango y revienta
+        # recien al dividir, con un error que no dice cual dimension fue.
+        with pytest.raises(ValueError, match="being"):
+            Escala(being=0.0, knowing=50.0, doing=50.0, deciding=0.0)
+
     def test_dos_mil_veintitres_pondera_distinto(self):
         assert escala_de(2023).knowing == 35.0
         assert escala_de(2025).knowing == 45.0
@@ -140,12 +180,20 @@ class TestEscalaPorGestion:
 class TestEstadisticos:
     """El promedio esconde que 90/90/20 y 67/67/66 son cosas distintas."""
 
-    def test_una_sola_nota_no_tiene_dispersion_ni_tendencia(self):
+    def test_una_sola_nota_no_tiene_dispersion(self):
         f = expandir(obs(knowing=[36.0]))
         assert f["knowing_count"] == 1
+        # La dispersion de un punto SI es cero: esto se midio.
         assert f["knowing_std"] == pytest.approx(0.0)
-        assert f["knowing_trend"] == pytest.approx(0.0)
         assert f["knowing_min"] == f["knowing_max"] == f["knowing_mean"]
+
+    def test_una_sola_nota_no_tiene_tendencia_medible(self):
+        # La pendiente de un punto no existe. Un cero se leeria como "se midio y
+        # no cambio", que es la confusion entre faltante y medido.
+        assert expandir(obs(doing=[30.0]))["doing_trend"] is None
+
+    def test_con_dos_notas_ya_hay_tendencia(self):
+        assert expandir(obs(doing=[20.0, 30.0]))["doing_trend"] == pytest.approx(25.0)
 
     def test_distingue_dos_series_con_el_mismo_promedio(self):
         pareja = expandir(obs(knowing=[45.0, 45.0, 9.0]))

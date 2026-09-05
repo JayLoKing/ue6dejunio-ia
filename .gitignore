@@ -62,6 +62,9 @@ mlruns/
 .coverage
 htmlcov/
 
+# ===== Herramientas del entorno =====
+.atl/
+
 # ===== Revision de codigo =====
 # Config local de GGA: el proveedor de IA es eleccion de cada maquina. Las reglas
 # compartidas si se versionan, y viven en AGENTS.md.

@@ -1,4 +1,4 @@
-"""Contrato de features: cinco variables afuera, treinta columnas adentro.
+"""Contrato de features: cinco variables semanticas afuera, treinta columnas adentro.
 
 QUE VE QUIEN LLAMA
 ------------------
@@ -7,10 +7,15 @@ Cinco entradas semanticas, por estudiante y por materia en un trimestre:
     being, knowing, doing, deciding   -> las notas de esa dimension (1 o muchas)
     attendance_pct                    -> porcentaje de asistencia del trimestre
 
+Mas un sexto dato que no es una nota sino el contexto que las hace legibles:
+`criterios_planificados`, de donde sale `progress_pct`. Un promedio de 40 en la
+semana dos y uno de 40 en la semana diez significan cosas opuestas, y contar
+notas no distingue tres de tres de tres de siete.
+
 Las cuatro dimensiones son las de la RM 0001/2026 (Art. 29) y las que la BDD
-hace cumplir en `evaluation_criteria.dimension`: Being 10, Knowing 45, Doing 40,
-Deciding 5. Suman 100. La autoevaluacion no es una dimension: es el instrumento
-con que se califica Decidir, y por eso no aparece aca.
+hace cumplir en `evaluation_criteria.dimension`. Cuanto vale cada una depende de
+la gestion: ver `Escala`. La autoevaluacion no es una dimension: es el
+instrumento con que se califica Decidir, y por eso no aparece aca.
 
 QUE VE EL MODELO
 ----------------
@@ -29,47 +34,54 @@ ORDEN CRONOLOGICO
 `trend` es la ultima nota menos la primera, de modo que las listas tienen que
 llegar **ordenadas por fecha**. Sin esa garantia la feature es ruido.
 
-FUENTE UNICA
-------------
-Esta es la unica funcion que construye el vector: la usan el pipeline de
-entrenamiento y `serving/api.py`. Calcularlo de dos formas distintas le daria al
-modelo, en produccion, features que nunca vio — y se degradaria en silencio, sin
-un solo error, solo prediciendo peor.
+FUENTE UNICA — TODAVIA NO
+-------------------------
+La intencion es que esta sea la unica construccion del vector, usada por el
+pipeline de entrenamiento y por `serving/api.py`: calcularlo de dos formas
+distintas le daria al modelo, en produccion, features que nunca vio, y se
+degradaria en silencio, sin un solo error, solo prediciendo peor.
+
+**Hoy no lo es.** `training/train.py`, `serving/api.py` y `evaluation/evaluate.py`
+siguen importando `FEATURE_COLS` de `preprocessing/features.py`, que define otras
+cinco columnas escalares y promedia sobre las areas. Nadie importa este modulo
+todavia. Conectarlo es el paso siguiente, junto con `registro_loader`; hasta
+entonces conviven dos definiciones y esta nota es la que evita creer lo contrario.
 """
 
 from __future__ import annotations
 
+import logging
 import statistics
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 # Nota de aprobacion del Ministerio, expresada sobre 100 para que signifique lo
 # mismo en las cuatro dimensiones.
 NOTA_APROBACION_PCT = 51.0
 
 
-@dataclass(frozen=True)
-class Dimension:
-    nombre: str
-    tope: float
+# Los nombres exactos que la BDD acepta en `evaluation_criteria.dimension`, en el
+# orden del `total_score` generado. Cuanto vale cada uno NO vive aca: depende de la
+# gestion, y `Escala` es el unico lugar que lo dice.
+DIMENSIONES: tuple[str, ...] = ("being", "knowing", "doing", "deciding")
 
-
-# El orden es el de la RM y el del `total_score` generado en la BDD. Los topes que
-# van aca son los de hoy; los de cada gestion viven en `Escala`, porque la escuela
-# no pondero siempre igual.
-DIMENSIONES: tuple[Dimension, ...] = (
-    Dimension("being", 10.0),
-    Dimension("knowing", 45.0),
-    Dimension("doing", 40.0),
-    Dimension("deciding", 5.0),
-)
+# Margen para comparar la suma de una escala contra 100: los pesos podrian no ser
+# enteros y un `!= 100.0` sobre flotantes rechazaria un reparto valido.
+_TOLERANCIA_SUMA = 1e-9
 
 
 @dataclass(frozen=True)
 class Escala:
-    """Cuanto vale cada dimension en una gestion.
+    """Cuanto vale cada dimension en una gestion, ya resuelta la autoevaluacion.
 
-    Medido en los encabezados de los registros, no supuesto: 2023 y 2024 reparten
-    Saber 35 / Hacer 35 / Ser 10 / Decidir 10, y 2025 ya reparte 45 / 40 / 5 / 5.
+    Los encabezados crudos de los registros no suman 100 por si solos: dejan la
+    autoevaluacion en columnas aparte (2023-2024 reparten Ser 10 / Saber 35 /
+    Hacer 35 / Decidir 10 mas dos columnas de 5; 2025 reparte 5 / 45 / 40 / 5 mas
+    una de 5). Lo que se guarda aca es el reparto **despues** de sumarlas, que es
+    lo que hace comparable una nota de 2023 con una de hoy — ver
+    `ESCALAS_POR_GESTION` para como se asigno cada una.
+
     Un 35 de Saber era la nota perfecta en 2023 y es un 78 por ciento hoy. Sin
     esto, adaptar el historico al sistema 2026 lo deforma en silencio: ninguna
     fila falla, todas mienten un poco.
@@ -81,14 +93,23 @@ class Escala:
     deciding: float
 
     def __post_init__(self) -> None:
-        if self.total() != 100.0:
+        if abs(self.total() - 100.0) > _TOLERANCIA_SUMA:
             raise ValueError(f"La escala debe sumar 100, suma {self.total()}")
+        for dimension in DIMENSIONES:
+            if self.tope_de(dimension) <= 0:
+                # Sin esto un tope en cero pasa las dos guardas de `_a_porcentaje`
+                # (una nota 0 no es negativa ni supera el tope) y revienta recien
+                # al dividir, con un ZeroDivisionError que no dice cual dimension.
+                raise ValueError(
+                    f"La escala da {self.tope_de(dimension)} puntos a {dimension}: "
+                    "una dimension que no vale nada no es una dimension"
+                )
 
     def total(self) -> float:
         return self.being + self.knowing + self.doing + self.deciding
 
-    def tope_de(self, dimension: Dimension) -> float:
-        return getattr(self, dimension.nombre)
+    def tope_de(self, dimension: str) -> float:
+        return getattr(self, dimension)
 
 
 # La del sistema y la RM 0001/2026: es la escala a la que se lleva todo lo demas.
@@ -119,18 +140,30 @@ ESCALAS_POR_GESTION: dict[int, Escala] = {
 def escala_de(gestion: int | None) -> Escala:
     """La escala de esa gestion, o la vigente si no se conoce.
 
-    Caer en la vigente es lo correcto para el sistema, que es de donde vienen los
-    datos sin gestion declarada.
+    Sin gestion declarada es el caso del sistema, y la vigente es la respuesta
+    correcta. Una gestion que si viene pero no esta mapeada es otra cosa: sale una
+    planilla historica normalizada contra los topes de hoy, sin que falle una sola
+    fila. Por eso se avisa.
     """
     if gestion is None:
         return ESCALA_VIGENTE
-    return ESCALAS_POR_GESTION.get(gestion, ESCALA_VIGENTE)
+    escala = ESCALAS_POR_GESTION.get(gestion)
+    if escala is None:
+        logger.warning(
+            "Gestion %s sin escala mapeada: se normaliza contra la vigente y las "
+            "notas de esa planilla van a leerse corridas. Agregar su ponderacion "
+            "a ESCALAS_POR_GESTION.",
+            gestion,
+        )
+        return ESCALA_VIGENTE
+    return escala
+
 
 # Los siete estadisticos por dimension. El orden fija el de FEATURE_COLS.
 _ESTADISTICOS = ("mean", "min", "max", "std", "count", "below", "trend")
 
 FEATURE_COLS: list[str] = [
-    f"{d.nombre}_{e}" for d in DIMENSIONES for e in _ESTADISTICOS
+    f"{d}_{e}" for d in DIMENSIONES for e in _ESTADISTICOS
 ] + ["attendance_pct", "progress_pct"]
 
 
@@ -153,8 +186,8 @@ class ObservacionMateria:
     attendance_pct: float | None = None
     criterios_planificados: int | None = None
 
-    def notas_de(self, dimension: Dimension) -> list[float]:
-        return getattr(self, dimension.nombre)
+    def notas_de(self, dimension: str) -> list[float]:
+        return getattr(self, dimension)
 
 
 def puede_predecir(obs: ObservacionMateria) -> bool:
@@ -167,7 +200,7 @@ def puede_predecir(obs: ObservacionMateria) -> bool:
     return all(obs.notas_de(d) for d in DIMENSIONES)
 
 
-def _a_porcentaje(notas: list[float], dim: Dimension, tope: float) -> list[float]:
+def _a_porcentaje(notas: list[float], dim: str, tope: float) -> list[float]:
     """Cada nota como porcentaje del tope que regia cuando se puso.
 
     Un 5 de Being es la mitad de la dimension y un 5 de Knowing es un noveno. Y un
@@ -177,9 +210,9 @@ def _a_porcentaje(notas: list[float], dim: Dimension, tope: float) -> list[float
     """
     for n in notas:
         if n < 0:
-            raise ValueError(f"{dim.nombre}: nota negativa ({n})")
+            raise ValueError(f"{dim}: nota negativa ({n})")
         if n > tope:
-            raise ValueError(f"{dim.nombre}: nota {n} sobre el tope {tope}")
+            raise ValueError(f"{dim}: nota {n} sobre el tope {tope}")
     return [n / tope * 100.0 for n in notas]
 
 
@@ -198,7 +231,11 @@ def _estadisticos(pct: list[float]) -> dict[str, float | None]:
         "std": statistics.pstdev(pct),
         "count": len(pct),
         "below": sum(1 for p in pct if p < NOTA_APROBACION_PCT),
-        "trend": pct[-1] - pct[0],
+        # None con una sola nota, no cero. La dispersion de un punto SI es cero,
+        # pero su pendiente no existe, y un cero ahi se lee como "se midio y no
+        # cambio" — la misma confusion entre faltante y medido que dejo una
+        # dimension entera en cero durante tres gestiones.
+        "trend": pct[-1] - pct[0] if len(pct) > 1 else None,
     }
 
 
@@ -210,7 +247,7 @@ def _progreso(obs: ObservacionMateria) -> float | None:
     presente en vez de anticipar el final.
     """
     planificados = obs.criterios_planificados
-    if not planificados or planificados <= 0:
+    if planificados is None or planificados <= 0:
         return None
     calificados = sum(len(obs.notas_de(d)) for d in DIMENSIONES)
     return min(calificados / planificados * 100.0, 100.0)
@@ -234,7 +271,7 @@ def expandir(
             _a_porcentaje(obs.notas_de(dim), dim, escala.tope_de(dim))
         )
         for nombre in _ESTADISTICOS:
-            vector[f"{dim.nombre}_{nombre}"] = stats[nombre]
+            vector[f"{dim}_{nombre}"] = stats[nombre]
     vector["attendance_pct"] = obs.attendance_pct
     vector["progress_pct"] = _progreso(obs)
     return vector
