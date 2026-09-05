@@ -8,18 +8,24 @@ import pytest
 
 from ue6_ia.contract import (
     DIMENSIONES,
+    ESCALA_VIGENTE,
+    ESCALAS_POR_GESTION,
     FEATURE_COLS,
+    Escala,
     ObservacionMateria,
+    escala_de,
     expandir,
     puede_predecir,
 )
 
 
 def obs(**over) -> ObservacionMateria:
+    # Notas validas bajo cualquiera de las escalas, para que un test sobre la
+    # ponderacion de 2023 no rebote por un default pensado para la de hoy.
     base = {
-        "being": [8.0],
-        "knowing": [36.0],
-        "doing": [32.0],
+        "being": [4.0],
+        "knowing": [30.0],
+        "doing": [30.0],
         "deciding": [4.0],
         "attendance_pct": 95.0,
         "criterios_planificados": 8,
@@ -81,6 +87,54 @@ class TestEscala:
     def test_una_nota_negativa_se_rechaza(self):
         with pytest.raises(ValueError, match="negativa"):
             expandir(obs(being=[-1.0]))
+
+
+class TestEscalaPorGestion:
+    """La escuela no ponderó siempre igual, y el modelo tiene que ver una sola escala.
+
+    Medido en los encabezados de los registros: 2023-2024 usan Saber 35 y Hacer
+    35; 2025 ya usa 45 y 40. Normalizar todo contra los topes de hoy leería un
+    35/35 perfecto como un 78, que es la clase de error que no avisa.
+    """
+
+    def test_la_escala_vigente_es_la_de_la_rm(self):
+        assert (ESCALA_VIGENTE.being, ESCALA_VIGENTE.knowing) == (10.0, 45.0)
+        assert (ESCALA_VIGENTE.doing, ESCALA_VIGENTE.deciding) == (40.0, 5.0)
+
+    def test_toda_escala_suma_cien(self):
+        for gestion, esc in ESCALAS_POR_GESTION.items():
+            assert esc.total() == 100.0, f"gestion {gestion} no suma 100"
+
+    def test_una_gestion_desconocida_usa_la_vigente(self):
+        assert escala_de(2031) is ESCALA_VIGENTE
+        assert escala_de(None) is ESCALA_VIGENTE
+
+    def test_dos_mil_veintitres_pondera_distinto(self):
+        assert escala_de(2023).knowing == 35.0
+        assert escala_de(2025).knowing == 45.0
+
+    def test_el_maximo_de_su_epoca_vale_cien_en_cualquier_gestion(self):
+        vieja = escala_de(2023)
+        f = expandir(obs(being=[10.0], knowing=[35.0], doing=[35.0], deciding=[10.0]),
+                     escala=vieja)
+        assert f["knowing_mean"] == pytest.approx(100.0)
+        assert f["doing_mean"] == pytest.approx(100.0)
+
+    def test_la_misma_nota_significa_distinto_en_distinta_gestion(self):
+        nota = obs(knowing=[35.0])
+        assert expandir(nota, escala=escala_de(2023))["knowing_mean"] == pytest.approx(100.0)
+        hoy = expandir(nota, escala=escala_de(2025))["knowing_mean"]
+        assert hoy == pytest.approx(77.8, abs=0.1)
+
+    def test_una_nota_valida_en_2023_no_se_rechaza_por_el_tope_de_hoy(self):
+        # Decidir valia 10 puntos entonces y vale 5 ahora.
+        expandir(obs(deciding=[8.0]), escala=escala_de(2023))
+        with pytest.raises(ValueError, match="tope"):
+            expandir(obs(deciding=[8.0]), escala=ESCALA_VIGENTE)
+
+    def test_una_escala_que_no_suma_cien_se_rechaza(self):
+        with pytest.raises(ValueError, match="100"):
+            Escala(being=10.0, knowing=45.0, doing=40.0, deciding=99.0)
 
 
 class TestEstadisticos:

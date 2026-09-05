@@ -53,13 +53,78 @@ class Dimension:
     tope: float
 
 
-# El orden es el de la RM y el del `total_score` generado en la BDD.
+# El orden es el de la RM y el del `total_score` generado en la BDD. Los topes que
+# van aca son los de hoy; los de cada gestion viven en `Escala`, porque la escuela
+# no pondero siempre igual.
 DIMENSIONES: tuple[Dimension, ...] = (
     Dimension("being", 10.0),
     Dimension("knowing", 45.0),
     Dimension("doing", 40.0),
     Dimension("deciding", 5.0),
 )
+
+
+@dataclass(frozen=True)
+class Escala:
+    """Cuanto vale cada dimension en una gestion.
+
+    Medido en los encabezados de los registros, no supuesto: 2023 y 2024 reparten
+    Saber 35 / Hacer 35 / Ser 10 / Decidir 10, y 2025 ya reparte 45 / 40 / 5 / 5.
+    Un 35 de Saber era la nota perfecta en 2023 y es un 78 por ciento hoy. Sin
+    esto, adaptar el historico al sistema 2026 lo deforma en silencio: ninguna
+    fila falla, todas mienten un poco.
+    """
+
+    being: float
+    knowing: float
+    doing: float
+    deciding: float
+
+    def __post_init__(self) -> None:
+        if self.total() != 100.0:
+            raise ValueError(f"La escala debe sumar 100, suma {self.total()}")
+
+    def total(self) -> float:
+        return self.being + self.knowing + self.doing + self.deciding
+
+    def tope_de(self, dimension: Dimension) -> float:
+        return getattr(self, dimension.nombre)
+
+
+# La del sistema y la RM 0001/2026: es la escala a la que se lleva todo lo demas.
+ESCALA_VIGENTE = Escala(being=10.0, knowing=45.0, doing=40.0, deciding=5.0)
+
+# Lo que decia el encabezado de cada registro historico.
+#
+# Saber y Hacer se leen literales del encabezado y no admiten discusion. Ser y
+# Decidir si, porque la autoevaluacion figura como columna aparte y hay que
+# decidir a que dimension se le suma:
+#
+#   2023-2024: 'SER - 10', 'DECIDIR - 10', y DOS columnas de autoevaluacion que
+#     dicen a quien pertenecen — 'AUTOEVALUACION - SER 5' y
+#     'AUTOEVALUACION - DECIDIR 5'. Se suma cada una a la suya: 15 y 15.
+#   2025: 'SER - 5 Puntos' y 'DECIDIR - 5 Puntos' en la hoja EVAL, y una sola
+#     'AUTOEVALUACION - SER Y D' que cubre las dos sin decir como se reparte.
+#     Los 5 puntos van a Decidir, que es donde el sistema 2026 absorbe la
+#     autoevaluacion. **Es una decision de mapeo, no una lectura**: si el reparto
+#     real fuera otro, cambia aca y solo aca.
+ESCALAS_POR_GESTION: dict[int, Escala] = {
+    2023: Escala(being=15.0, knowing=35.0, doing=35.0, deciding=15.0),
+    2024: Escala(being=15.0, knowing=35.0, doing=35.0, deciding=15.0),
+    2025: Escala(being=5.0, knowing=45.0, doing=40.0, deciding=10.0),
+    2026: ESCALA_VIGENTE,
+}
+
+
+def escala_de(gestion: int | None) -> Escala:
+    """La escala de esa gestion, o la vigente si no se conoce.
+
+    Caer en la vigente es lo correcto para el sistema, que es de donde vienen los
+    datos sin gestion declarada.
+    """
+    if gestion is None:
+        return ESCALA_VIGENTE
+    return ESCALAS_POR_GESTION.get(gestion, ESCALA_VIGENTE)
 
 # Los siete estadisticos por dimension. El orden fija el de FEATURE_COLS.
 _ESTADISTICOS = ("mean", "min", "max", "std", "count", "below", "trend")
@@ -102,18 +167,20 @@ def puede_predecir(obs: ObservacionMateria) -> bool:
     return all(obs.notas_de(d) for d in DIMENSIONES)
 
 
-def _a_porcentaje(notas: list[float], dim: Dimension) -> list[float]:
-    """Cada nota como porcentaje de su propio tope.
+def _a_porcentaje(notas: list[float], dim: Dimension, tope: float) -> list[float]:
+    """Cada nota como porcentaje del tope que regia cuando se puso.
 
-    Un 5 de Being es la mitad de la dimension y un 5 de Knowing es un noveno.
-    Sin normalizar, el modelo los ve como el mismo numero.
+    Un 5 de Being es la mitad de la dimension y un 5 de Knowing es un noveno. Y un
+    35 de Saber es la nota perfecta de 2023 pero un 78 por ciento hoy. El
+    porcentaje es lo unico que significa lo mismo entre dimensiones y entre
+    gestiones, y es lo que deja entrenar con las dos cosas juntas.
     """
     for n in notas:
         if n < 0:
             raise ValueError(f"{dim.nombre}: nota negativa ({n})")
-        if n > dim.tope:
-            raise ValueError(f"{dim.nombre}: nota {n} sobre el tope {dim.tope}")
-    return [n / dim.tope * 100.0 for n in notas]
+        if n > tope:
+            raise ValueError(f"{dim.nombre}: nota {n} sobre el tope {tope}")
+    return [n / tope * 100.0 for n in notas]
 
 
 def _estadisticos(pct: list[float]) -> dict[str, float | None]:
@@ -149,8 +216,13 @@ def _progreso(obs: ObservacionMateria) -> float | None:
     return min(calificados / planificados * 100.0, 100.0)
 
 
-def expandir(obs: ObservacionMateria) -> dict[str, float | None]:
+def expandir(
+    obs: ObservacionMateria, escala: Escala = ESCALA_VIGENTE
+) -> dict[str, float | None]:
     """La observacion como el vector que entra al modelo.
+
+    `escala` es la ponderacion que regia cuando se pusieron esas notas: por
+    defecto la del sistema, y `escala_de(gestion)` para una planilla historica.
 
     Devuelve siempre las mismas claves, en el mismo orden, con `None` donde el
     dato falta. `None` y cero no son lo mismo: TF-DF trata el faltante como tal,
@@ -158,7 +230,9 @@ def expandir(obs: ObservacionMateria) -> dict[str, float | None]:
     """
     vector: dict[str, float | None] = {}
     for dim in DIMENSIONES:
-        stats = _estadisticos(_a_porcentaje(obs.notas_de(dim), dim))
+        stats = _estadisticos(
+            _a_porcentaje(obs.notas_de(dim), dim, escala.tope_de(dim))
+        )
         for nombre in _ESTADISTICOS:
             vector[f"{dim.nombre}_{nombre}"] = stats[nombre]
     vector["attendance_pct"] = obs.attendance_pct
