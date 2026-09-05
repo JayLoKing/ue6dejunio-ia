@@ -7,8 +7,10 @@
 # ============================================================
 
 paths:
-  # Sobrescribible por la variable de entorno UE6_DATA_ROOT
-  data_root: "/mnt/f/DATA PARA MODELO IA PROYECTO DE GRADO"
+  # Sobrescribible por la variable de entorno UE6_DATA_ROOT.
+  # Apuntaba a /mnt/f, un disco que ya no esta montado: el pipeline no encontraba
+  # una sola carpeta y devolvia un dataset vacio sin decir por que.
+  data_root: "/mnt/d/Unidad Educativa 6 de Junio - Sistema/Documentos/DOCS docentes"
   registros_2026: "Registros 2026"
   registros_pasados: "REGISTROS DE AÑOS PASADOS"
   interim_dir: "./data/interim"
