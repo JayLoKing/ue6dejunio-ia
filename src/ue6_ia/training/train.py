@@ -23,17 +23,26 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any  # el modelo es un tf_keras.Model, que no se importa afuera de las funciones
 
 import pandas as pd
 
 from ..config import AppConfig, get_config
+from ..contract import FEATURE_COLS
 from ..evaluation.metricas import resumen_clasificacion, resumir_pliegues
 from ..labeling import CLASES
-from ..preprocessing.features import FEATURE_COLS, TARGET_COL
+from ..preprocessing.features import TARGET_COL
 
 logger = logging.getLogger(__name__)
 
 MODEL_SUBDIR = "tfdf_riesgo"
+
+# Dos reportes distintos y dos archivos distintos. Compartian nombre, y como
+# `cli all` corre entrenamiento y despues evaluacion, el segundo pisaba al primero:
+# sobrevivia el de memorizacion y se perdia el pliegue por pliegue de la validacion
+# agrupada, que es justamente la medicion honesta.
+REPORTE_VALIDACION = "reporte_validacion_cruzada.json"
+REPORTE_EN_MUESTRA = "reporte_en_muestra.json"
 
 # El orden de las clases lo fija este modulo, no la libreria.
 #
@@ -50,10 +59,13 @@ CLASES_ORDENADAS: list[str] = sorted(CLASES)
 # La columna que identifica al estudiante. Es la que agrupa los pliegues.
 COL_GRUPO = "nombre_key"
 
-MODELOS = ("gradient_boosted_trees", "random_forest")
+# Por si la config no la declara. La lista real sale de `config.yaml`: tenerla solo
+# aca dejaba la clave del yaml escrita y sin leer, que es config muerta invitando a
+# editarla para nada.
+MODELOS_POR_DEFECTO = ("gradient_boosted_trees", "random_forest")
 
 
-def _features_presentes(dataset: pd.DataFrame) -> list[str]:
+def features_presentes(dataset: pd.DataFrame) -> list[str]:
     """Las features del contrato que el dataset realmente trae.
 
     Filtrar sin decir nada es la misma degradacion silenciosa que el `or 0.0`: el
@@ -70,7 +82,7 @@ def _features_presentes(dataset: pd.DataFrame) -> list[str]:
     return presentes
 
 
-def _construir(modelo_tipo: str):
+def _construir(modelo_tipo: str) -> Any:
     """Un modelo sin entrenar del tipo pedido."""
     import tensorflow_decision_forests as tfdf
 
@@ -90,7 +102,7 @@ def _codificar(df: pd.DataFrame) -> pd.DataFrame:
     return codificado
 
 
-def _ajustar(train_df: pd.DataFrame, modelo_tipo: str):
+def _ajustar(train_df: pd.DataFrame, modelo_tipo: str) -> Any:
     import tensorflow_decision_forests as tfdf
 
     modelo = _construir(modelo_tipo)
@@ -100,7 +112,23 @@ def _ajustar(train_df: pd.DataFrame, modelo_tipo: str):
     return modelo
 
 
-def _predecir(modelo, test_df: pd.DataFrame) -> list[str]:
+def cargar_modelo(model_dir: Path) -> Any:
+    """El modelo guardado, abierto con la libreria que lo escribio.
+
+    `tf_keras` y NO `tf.keras`: desde TF 2.16 `tf.keras` es Keras 3, que no abre
+    el SavedModel de TF-DF y falla con "File format not supported". Vive aca para
+    que esa trampa este escrita una sola vez: la usan el evaluador y el servicio.
+    """
+    import tensorflow_decision_forests as tfdf  # noqa: F401  (registra las ops)
+    import tf_keras
+
+    if not model_dir.exists():
+        raise RuntimeError(f"Modelo no encontrado en {model_dir}. Entrena primero.")
+    return tf_keras.models.load_model(str(model_dir))
+
+
+def predecir(modelo: Any, test_df: pd.DataFrame) -> list[str]:
+    """Las clases predichas, nombradas contra `CLASES_ORDENADAS`."""
     import tensorflow_decision_forests as tfdf
 
     ds = tfdf.keras.pd_dataframe_to_tf_dataset(_codificar(test_df), label=TARGET_COL)
@@ -108,10 +136,12 @@ def _predecir(modelo, test_df: pd.DataFrame) -> list[str]:
     return [CLASES_ORDENADAS[i] for i in proba.argmax(axis=1)]
 
 
-def _entrenar_y_predecir(train_df: pd.DataFrame, test_df: pd.DataFrame, modelo_tipo: str):
+def _entrenar_y_predecir(
+    train_df: pd.DataFrame, test_df: pd.DataFrame, modelo_tipo: str
+) -> tuple[list[str], list[str]]:
     """Entrena en `train_df` y devuelve (etiquetas reales, predichas)."""
     modelo = _ajustar(train_df, modelo_tipo)
-    return test_df[TARGET_COL].tolist(), _predecir(modelo, test_df)
+    return test_df[TARGET_COL].tolist(), predecir(modelo, test_df)
 
 
 def validacion_cruzada(
@@ -120,7 +150,7 @@ def validacion_cruzada(
     """Mide el modelo sobre estudiantes que no vio, pliegue por pliegue."""
     from sklearn.model_selection import StratifiedGroupKFold
 
-    cols = _features_presentes(dataset)
+    cols = features_presentes(dataset)
     datos = dataset[cols + [TARGET_COL, COL_GRUPO]].copy()
     clases = CLASES_ORDENADAS
 
@@ -170,16 +200,20 @@ def entrenar(dataset: pd.DataFrame, cfg: AppConfig | None = None) -> Path:
     """
     cfg = cfg or get_config()
     logger.info("Entrenamiento en CPU (TF Decision Forests no usa GPU).")
-    cols = _features_presentes(dataset)
+    cols = features_presentes(dataset)
     logger.info("Filas: %d | estudiantes: %d | features: %s",
                 len(dataset), dataset[COL_GRUPO].nunique(), cols)
     logger.info("Distribucion de clases:\n%s", dataset[TARGET_COL].value_counts())
 
-    semilla = cfg["entrenamiento"]["semilla"]
+    entrenamiento = cfg["entrenamiento"]
+    semilla = entrenamiento["semilla"]
+    pliegues = int(entrenamiento.get("n_pliegues", 5))
     comparacion = {}
-    for modelo_tipo in MODELOS:
+    for modelo_tipo in entrenamiento.get("modelos", MODELOS_POR_DEFECTO):
         logger.info("Validacion cruzada agrupada por estudiante — %s", modelo_tipo)
-        comparacion[modelo_tipo] = validacion_cruzada(dataset, modelo_tipo, semilla=semilla)
+        comparacion[modelo_tipo] = validacion_cruzada(
+            dataset, modelo_tipo, n_pliegues=pliegues, semilla=semilla
+        )
 
     elegido = _elegir(comparacion)
     logger.info(
@@ -194,13 +228,14 @@ def entrenar(dataset: pd.DataFrame, cfg: AppConfig | None = None) -> Path:
     # correspondiera a CLASES_ORDENADAS, un GBT sobre sus propios datos de
     # entrenamiento no acertaria casi nada.
     acierto_train = sum(
-        1 for real, pred in zip(datos[TARGET_COL], _predecir(modelo, datos), strict=True)
+        1 for real, pred in zip(datos[TARGET_COL], predecir(modelo, datos), strict=True)
         if real == pred
     ) / len(datos)
     logger.info("Acierto sobre los propios datos de entrenamiento: %.3f "
                 "(control del mapeo de clases, NO una metrica)", acierto_train)
 
     out_dir = cfg.models_dir / MODEL_SUBDIR
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
     modelo.save(str(out_dir))
 
     meta = {
@@ -219,16 +254,11 @@ def entrenar(dataset: pd.DataFrame, cfg: AppConfig | None = None) -> Path:
     (out_dir / "metadata.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
     )
-    (out_dir / "reporte_evaluacion.json").write_text(
+    (out_dir / REPORTE_VALIDACION).write_text(
         json.dumps(comparacion, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
     )
     logger.info("Modelo y reporte guardados en %s", out_dir)
     return out_dir
-
-
-# Diferencias de macro F1 por debajo de esto se consideran empate. El desvio entre
-# pliegues ronda 0.13, asi que separar dos modelos por milesimas seria elegir ruido.
-_EMPATE_MACRO_F1 = 0.01
 
 
 def _elegir(comparacion: dict) -> str:
@@ -238,11 +268,11 @@ def _elegir(comparacion: dict) -> str:
     accuracy premia al modelo que nunca lo predice.
 
     Pero macro F1 solo tampoco alcanza. Los dos modelos dan practicamente el mismo
-    valor —la diferencia medida fue de 0.001 contra un desvio de 0.13— y elegir por
-    esa milesima se quedaba con el que **menos** casos criticos detecta. Cuando la
-    diferencia cabe dentro del ruido, decide el objetivo del sistema: avisarle al
-    docente antes de que el estudiante repruebe. Un falso negativo es un chico que
-    reprueba sin aviso; un falso positivo es una revision de mas.
+    valor y elegir por esa diferencia se quedaba con el que **menos** casos
+    criticos detecta. Cuando la diferencia cabe dentro de lo que la metrica se
+    mueve entre pliegues, decide el objetivo del sistema: avisarle al docente antes
+    de que el estudiante repruebe. Un falso negativo es un chico que reprueba sin
+    aviso; un falso positivo es una revision de mas.
 
     El macro F1 sigue actuando de piso, asi que un modelo degenerado que gritara
     `RiesgoCritico` en todas las filas —recall 1.0, precision pesima— no gana.
@@ -251,16 +281,26 @@ def _elegir(comparacion: dict) -> str:
         media = comparacion[nombre]["resumen"].get("macro_f1", {}).get("media")
         return media if media is not None else -1.0
 
+    def desvio_macro(nombre: str) -> float:
+        d = comparacion[nombre]["resumen"].get("macro_f1", {}).get("desvio")
+        return d if d is not None else 0.0
+
     def recall_critico(nombre: str) -> float:
         media = comparacion[nombre]["resumen"].get("recall_riesgo_critico", {}).get("media")
         return media if media is not None else -1.0
 
+    # La banda de empate sale de los datos, no de una constante: es cuanto se
+    # mueve el propio macro F1 entre pliegues. Una diferencia mas chica que eso no
+    # distingue dos modelos, distingue dos repartos de estudiantes. Con un umbral
+    # fijo de 0.01 y un desvio de 0.08, una diferencia de 0.013 se tomaba por real
+    # y elegia el modelo que detecta la mitad de los casos criticos.
     mejor_macro = max(macro(n) for n in comparacion)
-    empatados = [n for n in comparacion if mejor_macro - macro(n) <= _EMPATE_MACRO_F1]
+    banda = max(desvio_macro(n) for n in comparacion)
+    empatados = [n for n in comparacion if mejor_macro - macro(n) <= banda]
     return max(empatados, key=recall_critico)
 
 
-def _importancias(modelo) -> dict:
+def _importancias(modelo: Any) -> dict:
     """Que variables pesan en la decision. Es la ventaja de los arboles."""
     try:
         inspector = modelo.make_inspector()

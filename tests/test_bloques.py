@@ -151,7 +151,7 @@ class TestLocalizarBloque:
                   c3="Hacer uso de instrumentos",
                   c4="P R O M E D I O"),
         ])
-        assert columnas_de_criterios(cab, "SABER") == [2, 3]
+        assert columnas_de_criterios(cab, "SABER") == [1, 2, 3]
 
     def test_un_criterio_asi_tampoco_abre_un_bloque_ajeno(self):
         cab = aplanar_cabecera([
@@ -187,9 +187,14 @@ class TestColumnasDeCriterios:
         assert 10 not in columnas_de_criterios(CAB_2025, "SABER")
         assert 18 not in columnas_de_criterios(CAB_2025, "HACER")
 
-    def test_un_titulo_solo_no_aporta_criterio(self):
-        # En 2026 la col 2 dice 'SER - 10' y debajo no hay nada.
-        assert 2 not in columnas_de_criterios(CAB_2026, "SER")
+    def test_el_tramo_incluye_la_columna_del_encabezado(self):
+        """Suele llevar tambien el primer criterio, y cuando no, viene vacia.
+
+        En 2023 la columna de DECIDIR trae el valor sin nombrar criterio debajo;
+        en 2026 la de SER es solo rotulo y los alumnos no tienen nada ahi.
+        Incluirla siempre acierta en los dos casos.
+        """
+        assert columnas_de_criterios(CAB_2026, "SER") == [2, 3, 4]
 
     def test_funciona_igual_en_2023(self):
         assert columnas_de_criterios(CAB_2023, "SABER") == [3, 4, 5, 6, 7, 8, 9]
@@ -200,5 +205,4 @@ class TestColumnasDeCriterios:
         assert columnas_de_criterios(CAB_2025, "SER") == []
 
     def test_en_2026_ser_si_tiene_criterios_propios(self):
-        assert columnas_de_criterios(CAB_2026, "SER") == [3, 4]
-        assert columnas_de_criterios(CAB_2026, "SABER") == [7, 8, 9, 10, 11]
+        assert columnas_de_criterios(CAB_2026, "SABER") == [6, 7, 8, 9, 10, 11]

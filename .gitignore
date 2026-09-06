@@ -10,13 +10,15 @@ dist/
 .eggs/
 
 # ===== Entornos virtuales =====
-.venv/
-.venv-wsl/
+# Ninguno se versiona: `.venv-wsl` sola pesa 2.6 GB, y las dependencias ya estan
+# declaradas en requirements.txt. Se reconstruye, no se copia.
+.venv*/
 ~/.venv-ue6/
 venv/
 env/
 ENV/
 .python-version
+pip-wheel-metadata/
 
 # ===== PyCharm / IDEs =====
 .idea/
@@ -38,6 +40,9 @@ data/
 *.tmp
 
 # ===== Modelos entrenados / artefactos =====
+# El modelo NO viaja por git: es binario, pesa, cambia entero en cada
+# entrenamiento y se reconstruye con `python -m ue6_ia.cli` desde los registros.
+# En otra maquina se entrena; lo que se versiona es como entrenarlo.
 models/
 *.keras
 *.h5

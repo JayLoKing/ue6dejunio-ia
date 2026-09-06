@@ -10,13 +10,14 @@ import pytest
 
 from ue6_ia.contract import (
     DIMENSIONES,
-    ESCALA_VIGENTE,
     ESCALAS_POR_GESTION,
     FEATURE_COLS,
     Escala,
     ObservacionMateria,
     escala_de,
+    escala_vigente,
     expandir,
+    filtrar_en_rango,
     puede_predecir,
 )
 
@@ -116,18 +117,33 @@ class TestEscalaPorGestion:
     """
 
     def test_la_escala_vigente_es_la_de_la_rm(self):
-        assert (ESCALA_VIGENTE.being, ESCALA_VIGENTE.knowing) == (10.0, 45.0)
-        assert (ESCALA_VIGENTE.doing, ESCALA_VIGENTE.deciding) == (40.0, 5.0)
+        assert (escala_vigente().being, escala_vigente().knowing) == (10.0, 45.0)
+        assert (escala_vigente().doing, escala_vigente().deciding) == (40.0, 5.0)
 
-    def test_toda_escala_suma_cien(self):
+    def test_ninguna_escala_pasa_de_cien(self):
+        # Puede sumar menos: lo que falta es la autoevaluacion, que se califica en
+        # una columna aparte que el loader no lee. Sumarla al tope achataba las
+        # notas de SER y DECIDIR contra un maximo inalcanzable.
         for gestion, esc in ESCALAS_POR_GESTION.items():
-            assert esc.total() == 100.0, f"gestion {gestion} no suma 100"
+            assert esc.total() <= 100.0, f"gestion {gestion} suma {esc.total()}"
 
-    def test_una_gestion_desconocida_usa_la_vigente(self):
-        assert escala_de(2031) is ESCALA_VIGENTE
-        assert escala_de(None) is ESCALA_VIGENTE
+    def test_los_topes_historicos_son_los_del_bloque(self):
+        # 'SER - 10' en 2023: un 10 es la nota perfecta y tiene que dar 100%.
+        assert escala_de(2023).being == 10.0
+        assert expandir(obs(being=[10.0]), escala=escala_de(2023))["being_mean"] == 100.0
 
-    def test_una_gestion_sin_mapear_avisa(self, caplog):
+    def test_una_escala_que_pasa_de_cien_se_rechaza(self):
+        with pytest.raises(ValueError, match="100"):
+            Escala(being=10.0, knowing=45.0, doing=40.0, deciding=99.0)
+
+    def test_una_gestion_del_sistema_usa_la_vigente(self):
+        # 2026 en adelante el colegio carga en el sistema y rige la ponderacion
+        # actual; no hay planilla historica con otra escala que buscar.
+        assert escala_de(2026) == escala_vigente()
+        assert escala_de(2031) == escala_vigente()
+        assert escala_de(None) == escala_vigente()
+
+    def test_una_gestion_historica_sin_mapear_avisa(self, caplog):
         """Normalizar contra la escala equivocada no rompe nada, y ese es el peligro."""
         with caplog.at_level(logging.WARNING, logger="ue6_ia.contract"):
             escala_de(2019)
@@ -170,11 +186,7 @@ class TestEscalaPorGestion:
         # Decidir valia 10 puntos entonces y vale 5 ahora.
         expandir(obs(deciding=[8.0]), escala=escala_de(2023))
         with pytest.raises(ValueError, match="tope"):
-            expandir(obs(deciding=[8.0]), escala=ESCALA_VIGENTE)
-
-    def test_una_escala_que_no_suma_cien_se_rechaza(self):
-        with pytest.raises(ValueError, match="100"):
-            Escala(being=10.0, knowing=45.0, doing=40.0, deciding=99.0)
+            expandir(obs(deciding=[8.0]), escala=escala_vigente())
 
 
 class TestEstadisticos:
@@ -266,3 +278,71 @@ class TestContratoUnico:
         # NaN y None no son lo mismo para TF-DF: None es "falta", NaN es basura.
         for v in expandir(obs()).values():
             assert v is None or not math.isnan(float(v))
+
+
+class TestTiposEstables:
+    """Toda feature es flotante, al entrenar y al predecir.
+
+    Si una columna queda entera porque en el entrenamiento nunca le falto un
+    valor, el SavedModel la fija como int64 y despues rechaza la firma en
+    inferencia con un "Could not find matching concrete function".
+    """
+
+    def test_todas_las_features_son_flotantes_o_none(self):
+        for nombre, valor in expandir(obs()).items():
+            assert valor is None or isinstance(valor, float), nombre
+
+    def test_los_contadores_tambien(self):
+        f = expandir(obs(knowing=[30.0, 20.0]))
+        assert isinstance(f["knowing_count"], float)
+        assert isinstance(f["knowing_below"], float)
+
+    def test_una_dimension_vacia_cuenta_cero_flotante(self):
+        f = expandir(obs(deciding=[]))
+        assert f["deciding_count"] == pytest.approx(0.0)
+        assert isinstance(f["deciding_count"], float)
+
+
+class TestFiltrarEnRango:
+    """El criterio de que nota es imposible se escribe una sola vez.
+
+    El entrenamiento tolera la suciedad de las planillas viejas y la inferencia la
+    rechaza, pero los dos preguntan lo mismo: descartar una nota mueve `count`,
+    `mean`, `std`, `below` y `trend`, asi que decidirlo fuera del contrato seria
+    transformar el vector por afuera.
+    """
+
+    def test_deja_pasar_lo_que_cabe(self):
+        limpia, fuera = filtrar_en_rango(obs(doing=[30.0, 38.0]), escala_vigente())
+        assert limpia.doing == [30.0, 38.0]
+        assert fuera == []
+
+    def test_descarta_la_nota_sobre_el_tope_y_dice_cual(self):
+        # Un 45 en un HACER que el encabezado limita a 40: pasa en las planillas.
+        limpia, fuera = filtrar_en_rango(obs(doing=[38.0, 45.0]), escala_vigente())
+        assert limpia.doing == [38.0]
+        assert fuera == [("doing", 45.0)]
+
+    def test_no_recorta_al_tope(self):
+        # Recortar inventaria un 40 que nadie puso.
+        limpia, _ = filtrar_en_rango(obs(doing=[45.0]), escala_vigente())
+        assert 40.0 not in limpia.doing
+
+    def test_respeta_la_escala_de_su_gestion(self):
+        # Decidir valia 10 en 2023: un 8 es legitimo entonces e imposible hoy.
+        limpia, _ = filtrar_en_rango(obs(deciding=[8.0]), escala_de(2023))
+        assert limpia.deciding == [8.0]
+        limpia_hoy, fuera = filtrar_en_rango(obs(deciding=[8.0]), escala_vigente())
+        assert limpia_hoy.deciding == []
+        assert fuera == [("deciding", 8.0)]
+
+    def test_conserva_lo_que_no_son_notas(self):
+        limpia, _ = filtrar_en_rango(
+            obs(attendance_pct=88.0, criterios_planificados=9), escala_vigente()
+        )
+        assert limpia.attendance_pct == 88.0
+        assert limpia.criterios_planificados == 9
+
+    def test_lo_filtrado_ya_pasa_por_expandir_sin_reventar(self):
+        limpia, _ = filtrar_en_rango(obs(doing=[38.0, 45.0]), escala_vigente())
+        assert expandir(limpia, escala_vigente())["doing_count"] == pytest.approx(1.0)

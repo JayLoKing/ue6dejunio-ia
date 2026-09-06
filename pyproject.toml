@@ -16,6 +16,11 @@ src = ["src"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.flake8-bugbear]
+# Depends/Header en el default del argumento es el idiom de FastAPI, no el bug
+# que B008 persigue.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Header", "fastapi.Query"]
+
 [tool.black]
 line-length = 100
 target-version = ["py311"]

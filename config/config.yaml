@@ -13,7 +13,6 @@ paths:
   data_root: "/mnt/d/Unidad Educativa 6 de Junio - Sistema/Documentos/DOCS docentes"
   registros_2026: "Registros 2026"
   registros_pasados: "REGISTROS DE AÑOS PASADOS"
-  interim_dir: "./data/interim"
   processed_dir: "./data/processed"
   models_dir: "./models"
 
@@ -101,7 +100,13 @@ features_opcionales:
 # Entrenamiento
 entrenamiento:
   semilla: 42
-  test_size: 0.2
   # Gestiones usadas como datos de entrenamiento (tienen ciclo completo).
   gestiones_entrenamiento: [2023, 2024, 2025]
-  modelo: "gradient_boosted_trees"   # tfdf: random_forest | gradient_boosted_trees
+  # Pliegues de la validacion cruzada, agrupada por estudiante. No hay `test_size`
+  # porque no hay un corte unico: con ~33 estudiantes, quien quede afuera cambia el
+  # resultado, y lo que se reporta es la media entre pliegues con su desvio.
+  n_pliegues: 5
+  # Los modelos que se comparan. Gana el de mejor macro F1 sobre estudiantes no
+  # vistos, y a igualdad —diferencia menor al desvio entre pliegues— el que mas
+  # casos de RiesgoCritico detecta.
+  modelos: ["gradient_boosted_trees", "random_forest"]

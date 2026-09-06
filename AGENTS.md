@@ -32,8 +32,12 @@ garantías de modelo en producción, pero sí honestidad en lo que se reporta.
   y tiene que quedar cubierto por el test que compara `expandir()` contra
   `FEATURE_COLS`.
 - Las notas se normalizan a porcentaje del tope de **su gestión** (`Escala`), no
-  contra los topes de hoy. La escuela ponderó distinto en 2023-2024 (Saber 35,
-  Hacer 35) que en 2025+ (45 y 40).
+  contra los topes de hoy. La escuela ponderó distinto: 2023 reparte Saber 35 y
+  Hacer 35; 2024 en adelante, 45 y 40.
+- **La ponderación se mide en la carpeta que tiene notas, no en cualquiera.** Hay
+  dos carpetas del mismo curso 2024 con templates distintos: la vacía conserva
+  `SABER - 35` y la que tiene 3304 notas dice `SABER - 45`. Leer la escala de la
+  equivocada hace rebotar notas legítimas contra un tope que no era el suyo.
 
 ## Honestidad de las métricas
 
@@ -84,7 +88,9 @@ garantías de modelo en producción, pero sí honestidad en lo que se reporta.
 - Ruff con `line-length = 100`, reglas `E, F, I, UP, B, SIM`. Sin imports ni
   variables sin usar.
 - Type hints en toda función pública, con `from __future__ import annotations`.
-- Sin `print()` para diagnóstico: `logging`.
+- Sin `print()` para diagnóstico: `logging`. **Excepción: `scripts/`**, que son
+  reportes de consola para una persona — ahí `print` ES la salida, no un rastro de
+  depuración, y `logging.basicConfig` la ensuciaría con timestamps y niveles.
 - Excepciones concretas, no `except Exception` desnudo salvo con `# noqa: BLE001`
   y un motivo escrito.
 - TF y TF-DF se importan **dentro** de la función que los usa: importarlos arriba

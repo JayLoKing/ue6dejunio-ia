@@ -150,8 +150,12 @@ def localizar_bloque(cabecera: list[str], dimension: str) -> Bloque | None:
                 col,
             )
             return None
-        # 'PROMEDIO TRIMESTRAL' cierra la fila entera y no pertenece a ningun bloque.
-        if _PROMEDIO in texto and "TRIMESTRAL" not in texto:
+        if _PROMEDIO in texto and "TRIMESTRAL" in texto:
+            # El total de la fila entera. Un bloque que llego hasta aca sin promedio
+            # propio es una columna suelta con el valor ya resuelto —la
+            # autoevaluacion de 2023 y 2026 es asi—, no una hoja malformada.
+            return None
+        if _PROMEDIO in texto:
             return Bloque(dimension=objetivo, inicio=inicio, promedio=col)
 
     # Encabezado presente y ningun promedio detras: la hoja no tiene la forma que
@@ -166,30 +170,21 @@ def localizar_bloque(cabecera: list[str], dimension: str) -> Bloque | None:
     return None
 
 
-def _aporta_criterio(texto: str) -> bool:
-    """Si la columna del encabezado lleva ademas el nombre de un criterio.
-
-    El texto de una columna es la union de sus alturas, un token por celda. El
-    primero es el nombre del bloque; si hay alguno mas que no sea el promedio, esa
-    misma columna arranca los criterios.
-
-    Pasa de verdad: en 2025 la columna 3 dice 'SABER - 45' arriba y
-    'DESCRIPCION DE LA VACACION' abajo, y el alumno tiene nota ahi. Empezar a
-    contar desde la siguiente perdia el primer criterio de cada bloque.
-    """
-    tokens = texto.split(" ")
-    return any(t and _PROMEDIO not in t for t in tokens[1:])
-
-
 def columnas_de_criterios(cabecera: list[str], dimension: str) -> list[int]:
     """Las columnas con las notas por criterio de esa dimension.
 
     Es lo que el loader venia salteando: leia solo la columna de promedio y tiraba
     las notas individuales, que son justamente las que el modelo necesita para
     distinguir 90/90/20 de 67/67/66.
+
+    El tramo **incluye la columna del encabezado**. Suena raro y es lo correcto:
+    esa columna suele llevar tambien el primer criterio —en 2025 dice 'SABER - 45'
+    arriba y 'DESCRIPCION DE LA VACACION' abajo, con nota del alumno— y en 2023 la
+    de DECIDIR trae el valor sin nombrar ningun criterio debajo. Cuando de verdad
+    es solo un rotulo, los estudiantes no tienen nada ahi y la columna no aporta
+    nada: incluirla no cuesta, y saltearla perdia una nota de cada siete.
     """
     bloque = localizar_bloque(cabecera, dimension)
     if bloque is None:
         return []
-    primera = [bloque.inicio] if _aporta_criterio(cabecera[bloque.inicio]) else []
-    return primera + list(range(bloque.inicio + 1, bloque.promedio))
+    return list(range(bloque.inicio, bloque.promedio))

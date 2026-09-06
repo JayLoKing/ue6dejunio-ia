@@ -38,3 +38,8 @@ uvicorn[standard]==0.32.1
 joblib==1.4.2
 rich==13.9.4                 # logs legibles en consola
 typer==0.13.1                # CLI de pipelines
+# Typer 0.13 usa la API vieja de Click. Con Click 8.2+ el `--help` revienta con
+# "Parameter.make_metavar() missing 1 required positional argument": los comandos
+# corren igual, pero la ayuda no se puede mostrar. Sin este pin, un `pip install`
+# en otra maquina trae Click 8.4 y hereda el problema.
+click<8.2

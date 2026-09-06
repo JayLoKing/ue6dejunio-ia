@@ -6,7 +6,6 @@ La precedencia es: variable de entorno > config.yaml > default.
 from __future__ import annotations
 
 import logging
-import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -22,14 +21,22 @@ CONFIG_FILE = REPO_ROOT / "config" / "config.yaml"
 class EnvSettings(BaseSettings):
     """Variables de entorno (prefijo UE6_)."""
 
-    model_config = SettingsConfigDict(env_prefix="UE6_", env_file=".env", extra="ignore")
+    # El .env se ancla a la raiz del repo, igual que config.yaml. Relativo al CWD,
+    # correr el CLI desde otra carpeta lo hacia desaparecer sin decir nada: el
+    # token quedaba vacio y `UE6_DATA_ROOT` caia al valor del yaml.
+    model_config = SettingsConfigDict(
+        env_prefix="UE6_", env_file=REPO_ROOT / ".env", extra="ignore"
+    )
 
     data_root: str | None = None
     models_dir: str = "./models"
     log_level: str = "INFO"
-    api_host: str = "0.0.0.0"
+    # Loopback por defecto: el servicio no va expuesto a internet.
+    api_host: str = "127.0.0.1"
     api_port: int = 8001
-    api_token: str = "cambia-este-token"
+    # Sin valor por defecto a proposito: un placeholder en el repo es un token
+    # publico, y compararlo en tiempo constante no protege nada.
+    api_token: str = ""
 
 
 class AppConfig(BaseModel):
@@ -46,9 +53,23 @@ class AppConfig(BaseModel):
 
     @property
     def models_dir(self) -> Path:
-        d = REPO_ROOT / self.env.models_dir
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        """Donde vive el modelo. Leerla no crea nada: crear es tarea de quien escribe."""
+        return REPO_ROOT / self.env.models_dir
+
+    @property
+    def processed_dir(self) -> Path:
+        """Donde se guarda el dataset, resuelto contra la raiz del repo.
+
+        Contra `REPO_ROOT` y no contra el CWD: el yaml lo declara relativo
+        (`./data/processed`), asi que corriendo el CLI desde otra carpeta el
+        parquet con notas de menores caia en `<CWD>/data/processed`, fuera del
+        repo y fuera del `data/` que el .gitignore protege.
+
+        Tampoco cuelga del `data_root`: ese apunta a los registros del colegio,
+        que pueden estar en un disco externo o compartido. Lo derivado se queda
+        del lado del proyecto, donde ya hay una regla que impide versionarlo.
+        """
+        return REPO_ROOT / self.raw["paths"]["processed_dir"]
 
     @property
     def dir_2026(self) -> Path:
@@ -62,7 +83,7 @@ class AppConfig(BaseModel):
     def nota_aprobacion(self) -> int:
         return int(self.raw["nota_aprobacion"])
 
-    def __getitem__(self, key: str):
+    def __getitem__(self, key: str) -> object:
         return self.raw[key]
 
 
@@ -83,7 +104,12 @@ def get_config() -> AppConfig:
         raw = yaml.safe_load(fh)
     env = EnvSettings()
     # permitir override de models_dir desde yaml si no hay env
-    if "UE6_MODELS_DIR" not in os.environ and raw.get("paths", {}).get("models_dir"):
+    # Contra el default del campo y no contra os.environ: `BaseSettings` lee el
+    # `.env` hacia el modelo pero NO lo inyecta en el entorno, asi que preguntarle
+    # a os.environ daba falso y el yaml pisaba al `.env`. Justo al reves de la
+    # precedencia que declara el docstring de este modulo.
+    por_defecto = EnvSettings.model_fields["models_dir"].default
+    if env.models_dir == por_defecto and raw.get("paths", {}).get("models_dir"):
         env.models_dir = raw["paths"]["models_dir"]
     _setup_logging(env.log_level)
     return AppConfig(raw=raw, env=env)

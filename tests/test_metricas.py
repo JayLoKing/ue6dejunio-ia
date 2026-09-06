@@ -102,19 +102,26 @@ class TestResumirPliegues:
 class TestEleccionDeModelo:
     """Con macro F1 empatado, decide a cuantos chicos en riesgo detecta."""
 
-    def _comparacion(self, macro_a, recall_a, macro_b, recall_b):
+    def _comparacion(self, macro_a, recall_a, macro_b, recall_b, desvio=0.08):
         def res(macro, recall):
             return {"resumen": {
-                "macro_f1": {"media": macro},
+                "macro_f1": {"media": macro, "desvio": desvio},
                 "recall_riesgo_critico": {"media": recall},
             }}
         return {"a": res(macro_a, recall_a), "b": res(macro_b, recall_b)}
 
-    def test_una_milesima_de_macro_f1_no_decide(self):
+    def test_una_diferencia_menor_al_desvio_no_decide(self):
         from ue6_ia.training.train import _elegir
-        # Lo medido: 0.6529 vs 0.6541 de macro F1, con desvio 0.13.
-        elegido = _elegir(self._comparacion(0.6529, 0.3067, 0.6541, 0.2400))
+        # Lo medido: 0.547 vs 0.560 de macro F1 con desvio 0.08. Esos 0.013 no
+        # distinguen dos modelos, distinguen dos repartos de estudiantes.
+        elegido = _elegir(self._comparacion(0.547, 0.219, 0.560, 0.125))
         assert elegido == "a"
+
+    def test_la_banda_de_empate_sale_del_desvio_medido(self):
+        from ue6_ia.training.train import _elegir
+        # Con pliegues estables, esa misma diferencia si separa a los modelos.
+        elegido = _elegir(self._comparacion(0.547, 0.219, 0.560, 0.125, desvio=0.001))
+        assert elegido == "b"
 
     def test_una_diferencia_real_de_macro_f1_si_decide(self):
         from ue6_ia.training.train import _elegir
@@ -156,3 +163,28 @@ class TestF1SinSoporte:
         r = resumen_clasificacion(y_true, y_pred, CLASES)
         # Solo SinRiesgo tuvo soporte: su F1 es el unico que promedia.
         assert r["macro_f1"] == pytest.approx(r["por_clase"]["SinRiesgo"]["f1"])
+
+
+class TestGuardaDeGestion:
+    """Las notas se normalizan contra el tope de SU gestion, y eso se verifica."""
+
+    def test_dos_gestiones_en_una_llamada_se_rechazan(self):
+        import pandas as pd
+        import pytest as _pytest
+
+        from ue6_ia.config import AppConfig, EnvSettings
+        from ue6_ia.preprocessing.features import construir_features
+
+        reg = pd.DataFrame([
+            {"gestion": 2023, "grado": 4, "paralelo": "A", "trimestre": 1,
+             "nombre": "A B", "area": "Mate", "being": [], "knowing": [],
+             "doing": [], "deciding": [], "criterios_planificados": 1,
+             "prom_area_trim": 60.0},
+            {"gestion": 2025, "grado": 6, "paralelo": "A", "trimestre": 1,
+             "nombre": "C D", "area": "Mate", "being": [], "knowing": [],
+             "doing": [], "deciding": [], "criterios_planificados": 1,
+             "prom_area_trim": 60.0},
+        ])
+        cfg = AppConfig(raw={"riesgo": {}}, env=EnvSettings())
+        with _pytest.raises(ValueError, match="una sola gestion"):
+            construir_features(reg, pd.DataFrame(), pd.DataFrame(), cfg)
