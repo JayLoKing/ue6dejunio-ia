@@ -85,3 +85,6 @@ htmlcov/
 Thumbs.db
 .DS_Store
 desktop.ini
+
+# Indice local de CodeGraph: se reconstruye por checkout y depende de rutas absolutas.
+.codegraph/
