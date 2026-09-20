@@ -18,8 +18,11 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.flake8-bugbear]
 # Depends/Header en el default del argumento es el idiom de FastAPI, no el bug
-# que B008 persigue.
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Header", "fastapi.Query"]
+# que B008 persigue. `typer.Option` esta aqui por lo mismo: es como Typer declara
+# una opcion de linea de comandos, y el objeto que devuelve no se muta.
+extend-immutable-calls = [
+    "fastapi.Depends", "fastapi.Header", "fastapi.Query", "typer.Option",
+]
 
 [tool.black]
 line-length = 100

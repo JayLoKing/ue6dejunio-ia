@@ -174,6 +174,7 @@ PYTHONPATH=src python -m ue6_ia.cli build-dataset   # Excel → data/processed/d
 PYTHONPATH=src python -m ue6_ia.cli train           # entrena TF-DF → models/tfdf_riesgo/
 PYTHONPATH=src python -m ue6_ia.cli evaluate        # matriz de confusión, F1, importancia de variables
 PYTHONPATH=src python -m ue6_ia.cli all             # las tres en secuencia
+PYTHONPATH=src python -m ue6_ia.cli figuras         # láminas del modelo → reports/figures/ (ver reports/LAMINAS.md)
 PYTHONPATH=src python -m ue6_ia.cli serve           # levanta el servicio de inferencia
 ```
 

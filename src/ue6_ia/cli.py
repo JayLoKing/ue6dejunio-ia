@@ -3,6 +3,7 @@
   python -m ue6_ia.cli build-dataset      # Excel -> data/processed/*.parquet
   python -m ue6_ia.cli train              # entrena y guarda el modelo
   python -m ue6_ia.cli evaluate           # reporte sobre el dataset
+  python -m ue6_ia.cli figuras            # laminas del modelo para el documento
   python -m ue6_ia.cli all                # build-dataset + train + evaluate
 """
 
@@ -62,6 +63,47 @@ def evaluate() -> None:
     rep = reporte_clasificacion(ds)
     out = guardar_reporte(rep)
     typer.echo(f"Reporte guardado en {out}")
+
+
+@app.command()
+def figuras(
+    salida: Path | None = typer.Option(
+        None, "--salida", help="Carpeta destino. Por defecto reports/figures/ del repo."
+    ),
+    resumen: bool = typer.Option(
+        False, "--resumen", help="Ademas, imprime en JSON los numeros que cita el documento."
+    ),
+) -> None:
+    """Dibuja las laminas del modelo para el documento oficial.
+
+    Lee los reportes que dejo el entrenamiento; no carga el modelo, asi que corre
+    en Windows sin WSL. Necesita matplotlib, que esta en requirements-dev.txt.
+    """
+    import json
+
+    from .config import REPO_ROOT
+    from .evaluation.graficos import SUBDIR_FIGURAS, generar_figuras, resumen_para_documentar
+    from .training.train import MODEL_SUBDIR
+
+    cfg = get_config()
+    modelo_dir = cfg.models_dir / MODEL_SUBDIR
+    destino = salida or (REPO_ROOT / SUBDIR_FIGURAS)
+
+    try:
+        escritas = generar_figuras(modelo_dir, destino)
+    except FileNotFoundError as e:
+        typer.echo(str(e))
+        raise typer.Exit(code=1) from e
+    except ModuleNotFoundError as e:
+        typer.echo(f"Falta matplotlib: pip install -r requirements-dev.txt ({e})")
+        raise typer.Exit(code=1) from e
+
+    for path in escritas:
+        typer.echo(f"  {path}")
+    typer.echo(f"OK: {len(escritas)} figuras en {destino}")
+
+    if resumen:
+        typer.echo(json.dumps(resumen_para_documentar(modelo_dir), indent=2, ensure_ascii=False))
 
 
 @app.command("all")
