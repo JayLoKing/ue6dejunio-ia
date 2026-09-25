@@ -62,9 +62,7 @@ def aplanar_cabecera(filas: list[list]) -> list[str]:
     aplanada = []
     for col in range(ancho):
         partes = [
-            normalizar(fila[col])
-            for fila in filas
-            if col < len(fila) and normalizar(fila[col])
+            normalizar(fila[col]) for fila in filas if col < len(fila) and normalizar(fila[col])
         ]
         aplanada.append(" ".join(partes))
     return aplanada
@@ -84,7 +82,7 @@ def _nombra_dimension(texto: str, dimension: str) -> bool:
     """
     if not texto.startswith(dimension):
         return False
-    resto = texto[len(dimension):]
+    resto = texto[len(dimension) :]
     return not resto or not resto[0].isalpha()
 
 

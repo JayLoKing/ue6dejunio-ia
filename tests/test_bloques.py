@@ -25,42 +25,92 @@ def _fila(ancho: int, **celdas: str) -> list:
 
 
 # 2025, hoja LENG. SER y DECIDIR llegan ya resueltos desde 'EVAL SER Y DECIDIR'.
-CAB_2025 = aplanar_cabecera([
-    _fila(22, c1="DIMENSIONES", c2="P R O M E D I O     S E R", c3="SABER - 45",
-          c11="HACER - 40", c19="P R O M E D I O    D E C I D I R",
-          c20="AUTOEVALUACIÓN - SER Y D", c21="PROMEDIO TRIMESTRAL"),
-    _fila(22, c3="DESCRIPCION DE LA VACACION", c4="HISTORIA DE SANDRA",
-          c5="ME DUERMO TEMPRANO", c6="Comprencion del valor", c7="11 SELLOS",
-          c8="LIBRO NOVELAS CORTAS", c9="12-04 POESIA",
-          c10="P   R   O   M   E   D   I   O",
-          c11="Desarrollo de habilidades", c12="CARATULA",
-          c13="ELABORACION DE PROGRAMA", c14="ESCRIBIR PAPELOGRAFO",
-          c15="VOLUMRN DE VOZ", c16="GESTUACION Y MOVIMIENTO", c17="EVALUACION",
-          c18="P   R   O   M   E   D   I   O"),
-])
+CAB_2025 = aplanar_cabecera(
+    [
+        _fila(
+            22,
+            c1="DIMENSIONES",
+            c2="P R O M E D I O     S E R",
+            c3="SABER - 45",
+            c11="HACER - 40",
+            c19="P R O M E D I O    D E C I D I R",
+            c20="AUTOEVALUACIÓN - SER Y D",
+            c21="PROMEDIO TRIMESTRAL",
+        ),
+        _fila(
+            22,
+            c3="DESCRIPCION DE LA VACACION",
+            c4="HISTORIA DE SANDRA",
+            c5="ME DUERMO TEMPRANO",
+            c6="Comprencion del valor",
+            c7="11 SELLOS",
+            c8="LIBRO NOVELAS CORTAS",
+            c9="12-04 POESIA",
+            c10="P   R   O   M   E   D   I   O",
+            c11="Desarrollo de habilidades",
+            c12="CARATULA",
+            c13="ELABORACION DE PROGRAMA",
+            c14="ESCRIBIR PAPELOGRAFO",
+            c15="VOLUMRN DE VOZ",
+            c16="GESTUACION Y MOVIMIENTO",
+            c17="EVALUACION",
+            c18="P   R   O   M   E   D   I   O",
+        ),
+    ]
+)
 
 # 2023: los bloques se anuncian con su nombre y su ponderacion, sin PROMEDIO.
-CAB_2023 = aplanar_cabecera([
-    _fila(23, c1="DIMENSIONES", c2="S E R - 10", c3="SABER - 35",
-          c11="HACER - 35", c19="D E C I D I R - 10",
-          c20="AUTOEVALUACIÓN - SER 5", c21="AUTOEVALUACIÓN - DECIDIR 5",
-          c22="PROMEDIO TRIMESTRAL"),
-    _fila(23, c3="LECTURA", c4="ESCRITURA", c5="Comprencion del valor",
-          c6="crit 4", c7="crit 5", c8="crit 6", c9="crit 7",
-          c10="P   R   O   M   E   D   I   O",
-          c11="Desarrollo de habilidades", c12="crit b", c13="pancarta",
-          c14="cuadernos", c15="crit e", c16="crit f", c17="crit g",
-          c18="P   R   O   M   E   D   I   O"),
-])
+CAB_2023 = aplanar_cabecera(
+    [
+        _fila(
+            23,
+            c1="DIMENSIONES",
+            c2="S E R - 10",
+            c3="SABER - 35",
+            c11="HACER - 35",
+            c19="D E C I D I R - 10",
+            c20="AUTOEVALUACIÓN - SER 5",
+            c21="AUTOEVALUACIÓN - DECIDIR 5",
+            c22="PROMEDIO TRIMESTRAL",
+        ),
+        _fila(
+            23,
+            c3="LECTURA",
+            c4="ESCRITURA",
+            c5="Comprencion del valor",
+            c6="crit 4",
+            c7="crit 5",
+            c8="crit 6",
+            c9="crit 7",
+            c10="P   R   O   M   E   D   I   O",
+            c11="Desarrollo de habilidades",
+            c12="crit b",
+            c13="pancarta",
+            c14="cuadernos",
+            c15="crit e",
+            c16="crit f",
+            c17="crit g",
+            c18="P   R   O   M   E   D   I   O",
+        ),
+    ]
+)
 
 # 2026: SER vuelve a la hoja de area con criterios propios.
-CAB_2026 = aplanar_cabecera([
-    _fila(22, c1="DIMENSIONES", c2="SER - 10", c5="P R O M E D I O     S E R",
-          c6="SABER - 45", c13="HACER - 40", c20="AUTOEVALUACIÓN (5)",
-          c21="PROMEDIO TRIMESTRAL"),
-    _fila(22, c12="P   R   O   M   E   D   I   O",
-          c19="P   R   O   M   E   D   I   O"),
-])
+CAB_2026 = aplanar_cabecera(
+    [
+        _fila(
+            22,
+            c1="DIMENSIONES",
+            c2="SER - 10",
+            c5="P R O M E D I O     S E R",
+            c6="SABER - 45",
+            c13="HACER - 40",
+            c20="AUTOEVALUACIÓN (5)",
+            c21="PROMEDIO TRIMESTRAL",
+        ),
+        _fila(22, c12="P   R   O   M   E   D   I   O", c19="P   R   O   M   E   D   I   O"),
+    ]
+)
 
 
 class TestNormalizar:
@@ -76,10 +126,12 @@ class TestAplanarCabecera:
     """El nombre del bloque y su promedio viven en filas distintas."""
 
     def test_junta_las_dos_alturas_en_una_sola_columna(self):
-        plana = aplanar_cabecera([
-            _fila(3, c1="SABER - 45"),
-            _fila(3, c1="Lectura", c2="P R O M E D I O"),
-        ])
+        plana = aplanar_cabecera(
+            [
+                _fila(3, c1="SABER - 45"),
+                _fila(3, c1="Lectura", c2="P R O M E D I O"),
+            ]
+        )
         assert plana[1].startswith("SABER-45")
         assert "LECTURA" in plana[1]
         assert plana[2] == "PROMEDIO"
@@ -125,10 +177,12 @@ class TestLocalizarBloque:
         columna dice 'HACER-40 PROMEDIO'. Preguntando primero por el promedio,
         SABER la tomaria como su cierre y se quedaria con los criterios de HACER.
         """
-        cab = aplanar_cabecera([
-            _fila(5, c1="SABER - 45", c3="HACER - 40"),
-            _fila(5, c2="Lectura", c3="P R O M E D I O"),
-        ])
+        cab = aplanar_cabecera(
+            [
+                _fila(5, c1="SABER - 45", c3="HACER - 40"),
+                _fila(5, c2="Lectura", c3="P R O M E D I O"),
+            ]
+        )
         assert localizar_bloque(cab, "SABER") is None
 
     def test_un_encabezado_sin_promedio_detras_se_avisa(self, caplog):
@@ -145,19 +199,26 @@ class TestLocalizarBloque:
         SER. Tomado por encabezado, corta SABER y le vacia los criterios sin que
         nada falle.
         """
-        cab = aplanar_cabecera([
-            _fila(5, c1="SABER - 45"),
-            _fila(5, c2="Ser responsable con sus tareas",
-                  c3="Hacer uso de instrumentos",
-                  c4="P R O M E D I O"),
-        ])
+        cab = aplanar_cabecera(
+            [
+                _fila(5, c1="SABER - 45"),
+                _fila(
+                    5,
+                    c2="Ser responsable con sus tareas",
+                    c3="Hacer uso de instrumentos",
+                    c4="P R O M E D I O",
+                ),
+            ]
+        )
         assert columnas_de_criterios(cab, "SABER") == [1, 2, 3]
 
     def test_un_criterio_asi_tampoco_abre_un_bloque_ajeno(self):
-        cab = aplanar_cabecera([
-            _fila(4, c1="SABER - 45"),
-            _fila(4, c2="Hacer uso de instrumentos", c3="P R O M E D I O"),
-        ])
+        cab = aplanar_cabecera(
+            [
+                _fila(4, c1="SABER - 45"),
+                _fila(4, c2="Hacer uso de instrumentos", c3="P R O M E D I O"),
+            ]
+        )
         assert localizar_bloque(cab, "HACER") is None
 
     def test_las_ausencias_legitimas_no_avisan(self, caplog):

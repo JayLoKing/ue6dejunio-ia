@@ -171,8 +171,7 @@ class TestEscalaPorGestion:
 
     def test_el_maximo_de_su_epoca_vale_cien_en_cualquier_gestion(self):
         vieja = escala_de(2023)
-        f = expandir(obs(being=[10.0], knowing=[35.0], doing=[35.0], deciding=[10.0]),
-                     escala=vieja)
+        f = expandir(obs(being=[10.0], knowing=[35.0], doing=[35.0], deciding=[10.0]), escala=vieja)
         assert f["knowing_mean"] == pytest.approx(100.0)
         assert f["doing_mean"] == pytest.approx(100.0)
 
@@ -240,8 +239,9 @@ class TestProgreso:
     """`count` dice cuantas notas hay, no cuantas faltan."""
 
     def test_el_progreso_compara_lo_calificado_con_lo_planificado(self):
-        f = expandir(obs(being=[8.0], knowing=[36.0], doing=[32.0], deciding=[4.0],
-                         criterios_planificados=8))
+        f = expandir(
+            obs(being=[8.0], knowing=[36.0], doing=[32.0], deciding=[4.0], criterios_planificados=8)
+        )
         assert f["progress_pct"] == pytest.approx(50.0)
 
     def test_sin_plan_el_progreso_es_desconocido_no_cero(self):

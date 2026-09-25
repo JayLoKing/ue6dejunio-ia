@@ -45,7 +45,7 @@ def parse_folder_name(path: Path) -> CursoFolder | None:
     if not mg or not ma:
         logger.debug("Carpeta ignorada (sin grado/paralelo/año): %s", name)
         return None
-    docente = name[mg.end():]
+    docente = name[mg.end() :]
     docente = re.sub(r"(?i)registro|pedag\.?|prof[a]?\.?|lic\.?|20\d{2}", " ", docente)
     return CursoFolder(
         path=path,

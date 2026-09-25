@@ -115,8 +115,10 @@ def _columna_de_nombres(grid: list[list]) -> int:
             if _ENCABEZADO_NOMBRE in normalizar(celda):
                 return col
     logger.warning(
-        "Sin encabezado de nombres ('%s') en las primeras %d filas; se asume la "
-        "columna %d.", _ENCABEZADO_NOMBRE, _BANDA_CABECERA, _COL_NOMBRE_POR_DEFECTO,
+        "Sin encabezado de nombres ('%s') en las primeras %d filas; se asume la " "columna %d.",
+        _ENCABEZADO_NOMBRE,
+        _BANDA_CABECERA,
+        _COL_NOMBRE_POR_DEFECTO,
     )
     return _COL_NOMBRE_POR_DEFECTO
 
@@ -136,7 +138,7 @@ def _nombre_de(fila: list, col_nombre: int) -> str | None:
 
 
 def _cabecera(grid: list[list], fila_est: int) -> list[str]:
-    return aplanar_cabecera(grid[max(0, fila_est - _ALTURA_CABECERA):fila_est])
+    return aplanar_cabecera(grid[max(0, fila_est - _ALTURA_CABECERA) : fila_est])
 
 
 def _declarados_por_dimension(columnas: dict[str, list[int]]) -> dict[str, int]:
@@ -170,8 +172,10 @@ def _columnas_por_dimension(
                 continue
             if _menciona_otra_dimension(cabecera[candidatas[0]], dimension):
                 logger.debug(
-                    "Bloque '%s' descartado para %s: su encabezado (%r) nombra otra "
-                    "dimension.", nombre_planilla, dimension, cabecera[candidatas[0]],
+                    "Bloque '%s' descartado para %s: su encabezado (%r) nombra otra " "dimension.",
+                    nombre_planilla,
+                    dimension,
+                    cabecera[candidatas[0]],
                 )
                 continue
             columnas[dimension] = candidatas
@@ -266,7 +270,9 @@ def _leer_hoja_curso(path: Path, trimestre: int) -> NotasDeCurso:
         logger.info(
             "Sin hoja '%s' en T%d: SER y DECIDIR tendran que venir de las hojas de "
             "area. Hojas disponibles: %s",
-            HOJA_SER_DECIDIR, trimestre, sorted(hojas.values()),
+            HOJA_SER_DECIDIR,
+            trimestre,
+            sorted(hojas.values()),
         )
         return vacio
 
@@ -302,7 +308,8 @@ def _leer_area(grid: list[list], area: str, del_curso: NotasDeCurso) -> list[dic
         # Sin una sola fila reconocible el area desaparece del entrenamiento, y
         # callarlo la deja afuera sin mas sintoma que filas de menos.
         logger.warning(
-            "Hoja de '%s' sin filas de estudiante reconocibles: se omite.", area,
+            "Hoja de '%s' sin filas de estudiante reconocibles: se omite.",
+            area,
         )
         return []
 
@@ -315,7 +322,8 @@ def _leer_area(grid: list[list], area: str, del_curso: NotasDeCurso) -> list[dic
         # nuevo se lleve la hoja entera y solo se note como filas de menos.
         logger.warning(
             "Hoja de '%s' sin bloques de SABER ni HACER: se omite. Si el docente "
-            "dicta esa area, el template cambio los encabezados.", area,
+            "dicta esa area, el template cambio los encabezados.",
+            area,
         )
         return []
 
@@ -363,19 +371,21 @@ def _leer_area(grid: list[list], area: str, del_curso: NotasDeCurso) -> list[dic
             # esta en blanco. No aporta nada y ensuciaria el conteo.
             continue
 
-        filas.append({
-            "nombre": nombre,
-            "area": area,
-            **notas,
-            # Cuantos criterios definio el docente, calificados o no. Es lo que
-            # permite distinguir tres notas de tres de tres notas de siete.
-            "criterios_planificados": sum(planificados.values()),
-            # El resultado del area en el trimestre. NO es una feature: es de donde
-            # sale la etiqueta, y sale de un trimestre distinto al de las notas.
-            "prom_area_trim": _a_float(fila[col_trimestral])
-            if col_trimestral is not None and col_trimestral < len(fila)
-            else None,
-        })
+        filas.append(
+            {
+                "nombre": nombre,
+                "area": area,
+                **notas,
+                # Cuantos criterios definio el docente, calificados o no. Es lo que
+                # permite distinguir tres notas de tres de tres notas de siete.
+                "criterios_planificados": sum(planificados.values()),
+                # El resultado del area en el trimestre. NO es una feature: es de donde
+                # sale la etiqueta, y sale de un trimestre distinto al de las notas.
+                "prom_area_trim": _a_float(fila[col_trimestral])
+                if col_trimestral is not None and col_trimestral < len(fila)
+                else None,
+            }
+        )
 
     if sin_pareja:
         # Se cuentan, no se nombran: son menores. `normalizar` arregla acentos y
@@ -383,14 +393,14 @@ def _leer_area(grid: list[list], area: str, del_curso: NotasDeCurso) -> list[dic
         # otra, y esos alumnos quedan sin SER ni DECIDIR sin que nada lo diga.
         logger.warning(
             "En '%s', %d estudiantes no se encontraron en la hoja de curso: se "
-            "quedan sin SER ni DECIDIR.", area, sin_pareja,
+            "quedan sin SER ni DECIDIR.",
+            area,
+            sin_pareja,
         )
     return filas
 
 
-def load_registro_trimestre(
-    curso: CursoFolder, trimestre: int, cfg: AppConfig
-) -> pd.DataFrame:
+def load_registro_trimestre(curso: CursoFolder, trimestre: int, cfg: AppConfig) -> pd.DataFrame:
     """Notas por criterio de un curso en un trimestre, una fila por estudiante y area.
 
     Columnas: gestion, grado, paralelo, trimestre, nombre, area,
@@ -418,7 +428,11 @@ def load_registro_trimestre(
         # unico sintoma serian filas de menos.
         logger.warning(
             "%d de %d areas configuradas no tienen hoja en %s T%d: %s",
-            len(faltantes), len(cfg["areas"]), curso.label, trimestre, faltantes,
+            len(faltantes),
+            len(cfg["areas"]),
+            curso.label,
+            trimestre,
+            faltantes,
         )
 
     df = pd.DataFrame(todas)
@@ -432,7 +446,10 @@ def load_registro_trimestre(
     df["trimestre"] = trimestre
     logger.info(
         "Registro %s T%d: %d filas (estudiante x area), %d areas, %d notas por criterio",
-        curso.label, trimestre, len(df), df["area"].nunique(),
+        curso.label,
+        trimestre,
+        len(df),
+        df["area"].nunique(),
         int(sum(df[d].map(len).sum() for d in DIMENSION_POR_COLUMNA)),
     )
     return df

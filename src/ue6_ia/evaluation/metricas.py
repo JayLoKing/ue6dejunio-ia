@@ -133,10 +133,7 @@ def resumir_pliegues(pliegues: list[dict]) -> dict:
 
     resumen = {}
     for nombre in sorted(nombres):
-        valores = [
-            p[nombre] for p in pliegues
-            if isinstance(p.get(nombre), int | float)
-        ]
+        valores = [p[nombre] for p in pliegues if isinstance(p.get(nombre), int | float)]
         resumen[nombre] = {
             "media": statistics.fmean(valores) if valores else None,
             "desvio": statistics.pstdev(valores) if valores else None,

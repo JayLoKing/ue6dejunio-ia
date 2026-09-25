@@ -106,9 +106,7 @@ def _ajustar(train_df: pd.DataFrame, modelo_tipo: str) -> Any:
     import tensorflow_decision_forests as tfdf
 
     modelo = _construir(modelo_tipo)
-    modelo.fit(
-        tfdf.keras.pd_dataframe_to_tf_dataset(_codificar(train_df), label=TARGET_COL)
-    )
+    modelo.fit(tfdf.keras.pd_dataframe_to_tf_dataset(_codificar(train_df), label=TARGET_COL))
     return modelo
 
 
@@ -174,8 +172,13 @@ def validacion_cruzada(
         # se lee muy distinto que un 0.84 solo, y esta linea es la que mira la gente.
         logger.info(
             "  pliegue %d/%d  n=%3d  acc=%.3f (base %.3f)  macroF1=%s  recallCritico=%s",
-            i, n_pliegues, medidas["n"], medidas["accuracy"], medidas["linea_base"],
-            _fmt(medidas["macro_f1"]), _fmt(medidas["recall_riesgo_critico"]),
+            i,
+            n_pliegues,
+            medidas["n"],
+            medidas["accuracy"],
+            medidas["linea_base"],
+            _fmt(medidas["macro_f1"]),
+            _fmt(medidas["recall_riesgo_critico"]),
         )
 
     return {
@@ -201,8 +204,12 @@ def entrenar(dataset: pd.DataFrame, cfg: AppConfig | None = None) -> Path:
     cfg = cfg or get_config()
     logger.info("Entrenamiento en CPU (TF Decision Forests no usa GPU).")
     cols = features_presentes(dataset)
-    logger.info("Filas: %d | estudiantes: %d | features: %s",
-                len(dataset), dataset[COL_GRUPO].nunique(), cols)
+    logger.info(
+        "Filas: %d | estudiantes: %d | features: %s",
+        len(dataset),
+        dataset[COL_GRUPO].nunique(),
+        cols,
+    )
     logger.info("Distribucion de clases:\n%s", dataset[TARGET_COL].value_counts())
 
     entrenamiento = cfg["entrenamiento"]
@@ -218,7 +225,8 @@ def entrenar(dataset: pd.DataFrame, cfg: AppConfig | None = None) -> Path:
     elegido = _elegir(comparacion)
     logger.info(
         "Modelo elegido sobre estudiantes no vistos (macro F1, y a igualdad de "
-        "macro F1 el que mas casos criticos detecta): %s", elegido
+        "macro F1 el que mas casos criticos detecta): %s",
+        elegido,
     )
 
     datos = dataset[cols + [TARGET_COL]].copy()
@@ -228,11 +236,15 @@ def entrenar(dataset: pd.DataFrame, cfg: AppConfig | None = None) -> Path:
     # correspondiera a CLASES_ORDENADAS, un GBT sobre sus propios datos de
     # entrenamiento no acertaria casi nada.
     acierto_train = sum(
-        1 for real, pred in zip(datos[TARGET_COL], predecir(modelo, datos), strict=True)
+        1
+        for real, pred in zip(datos[TARGET_COL], predecir(modelo, datos), strict=True)
         if real == pred
     ) / len(datos)
-    logger.info("Acierto sobre los propios datos de entrenamiento: %.3f "
-                "(control del mapeo de clases, NO una metrica)", acierto_train)
+    logger.info(
+        "Acierto sobre los propios datos de entrenamiento: %.3f "
+        "(control del mapeo de clases, NO una metrica)",
+        acierto_train,
+    )
 
     out_dir = cfg.models_dir / MODEL_SUBDIR
     out_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -277,6 +289,7 @@ def _elegir(comparacion: dict) -> str:
     El macro F1 sigue actuando de piso, asi que un modelo degenerado que gritara
     `RiesgoCritico` en todas las filas —recall 1.0, precision pesima— no gana.
     """
+
     def macro(nombre: str) -> float:
         media = comparacion[nombre]["resumen"].get("macro_f1", {}).get("media")
         return media if media is not None else -1.0

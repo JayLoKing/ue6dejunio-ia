@@ -24,10 +24,11 @@ extend-immutable-calls = [
     "fastapi.Depends", "fastapi.Header", "fastapi.Query", "typer.Option",
 ]
 
-[tool.black]
-line-length = 100
-target-version = ["py311"]
-
+# El formateador es `ruff format`, no black. Los dos estaban declarados con la
+# misma line-length, pero black no estaba instalado en el entorno y nadie lo
+# corria: el arbol no cumplia ninguno de los dos, que es la peor de las tres
+# situaciones posibles. ruff format es compatible con black y ya estaba aca
+# como linter, asi que queda uno solo y se corre.
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true

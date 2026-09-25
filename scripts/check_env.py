@@ -22,13 +22,17 @@ def main() -> int:
     ok = True
     major, minor = sys.version_info[:2]
     if (major, minor) != (3, 11):
-        print(f"  [!] Se recomienda Python 3.11 (tienes {major}.{minor}). "
-              "TF/TF-DF no soportan 3.13/3.14.")
+        print(
+            f"  [!] Se recomienda Python 3.11 (tienes {major}.{minor}). "
+            "TF/TF-DF no soportan 3.13/3.14."
+        )
         ok = False
 
     if platform.system() == "Windows":
-        print("  [!] Estas en Windows nativo. TF Decision Forests NO funciona aqui. "
-              "Usa WSL2, o Linux nativo. Ver README.md.")
+        print(
+            "  [!] Estas en Windows nativo. TF Decision Forests NO funciona aqui. "
+            "Usa WSL2, o Linux nativo. Ver README.md."
+        )
         ok = False
 
     try:
@@ -81,8 +85,10 @@ def _revisar_datos() -> bool:
 
     print(f"UE6_DATA_ROOT: {cfg.data_root}")
     if not cfg.data_root.is_dir():
-        print("  [!] Esa carpeta no existe. En Linux es una ruta normal "
-              "(/home/usuario/...); el prefijo /mnt/ es solo de WSL.")
+        print(
+            "  [!] Esa carpeta no existe. En Linux es una ruta normal "
+            "(/home/usuario/...); el prefijo /mnt/ es solo de WSL."
+        )
         return False
 
     # Los nombres los declara config.yaml: repetirlos aca haria que renombrar uno

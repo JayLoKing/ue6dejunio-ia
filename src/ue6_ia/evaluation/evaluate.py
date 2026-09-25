@@ -49,14 +49,21 @@ def reporte_clasificacion(dataset: pd.DataFrame, cfg: AppConfig | None = None) -
     medidas = resumen_clasificacion(y_true, pred, CLASES_ORDENADAS)
     logger.info(
         "Sobre %d filas: accuracy %.3f (linea base %.3f), macro F1 %s",
-        medidas["n"], medidas["accuracy"], medidas["linea_base"],
+        medidas["n"],
+        medidas["accuracy"],
+        medidas["linea_base"],
         "n/d" if medidas["macro_f1"] is None else f"{medidas['macro_f1']:.3f}",
     )
-    logger.info("Matriz de confusion (orden %s):\n%s",
-                CLASES_ORDENADAS, medidas["matriz_confusion"])
+    logger.info(
+        "Matriz de confusion (orden %s):\n%s", CLASES_ORDENADAS, medidas["matriz_confusion"]
+    )
     for clase, detalle in medidas["por_clase"].items():
-        logger.info("  %-14s soporte=%3d recall=%s", clase, detalle["soporte"],
-                    "n/d" if detalle["recall"] is None else f"{detalle['recall']:.3f}")
+        logger.info(
+            "  %-14s soporte=%3d recall=%s",
+            clase,
+            detalle["soporte"],
+            "n/d" if detalle["recall"] is None else f"{detalle['recall']:.3f}",
+        )
 
     # Estas metricas NO son una estimacion de como le ira con alguien nuevo, y el
     # reporte lo dice para que nadie las cite como si lo fueran.
@@ -74,7 +81,5 @@ def reporte_clasificacion(dataset: pd.DataFrame, cfg: AppConfig | None = None) -
 def guardar_reporte(reporte: dict, cfg: AppConfig | None = None) -> Path:
     cfg = cfg or get_config()
     out = cfg.models_dir / MODEL_SUBDIR / REPORTE_EN_MUESTRA
-    out.write_text(
-        json.dumps(reporte, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
-    )
+    out.write_text(json.dumps(reporte, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
     return out

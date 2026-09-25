@@ -1,10 +1,10 @@
 """CLI de pipelines.  Uso:
 
-  python -m ue6_ia.cli build-dataset      # Excel -> data/processed/*.parquet
-  python -m ue6_ia.cli train              # entrena y guarda el modelo
-  python -m ue6_ia.cli evaluate           # reporte sobre el dataset
-  python -m ue6_ia.cli figuras            # laminas del modelo para el documento
-  python -m ue6_ia.cli all                # build-dataset + train + evaluate
+python -m ue6_ia.cli build-dataset      # Excel -> data/processed/*.parquet
+python -m ue6_ia.cli train              # entrena y guarda el modelo
+python -m ue6_ia.cli evaluate           # reporte sobre el dataset
+python -m ue6_ia.cli figuras            # laminas del modelo para el documento
+python -m ue6_ia.cli all                # build-dataset + train + evaluate
 """
 
 from __future__ import annotations
@@ -136,9 +136,7 @@ def serve() -> None:
         typer.echo("Falta UE6_API_TOKEN: el servicio rechazaria todo pedido.")
         raise typer.Exit(code=1)
     typer.echo(f"Sirviendo en http://{cfg.env.api_host}:{cfg.env.api_port}")
-    uvicorn.run(
-        "ue6_ia.serving.api:app", host=cfg.env.api_host, port=cfg.env.api_port
-    )
+    uvicorn.run("ue6_ia.serving.api:app", host=cfg.env.api_host, port=cfg.env.api_port)
 
 
 if __name__ == "__main__":

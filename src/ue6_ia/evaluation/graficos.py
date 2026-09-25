@@ -294,8 +294,9 @@ def _lamina_matriz_confusion(plt, matriz: list[list[int]], clases: list[str], ou
     mayor = max((n for fila in matriz for n in fila), default=0)
     for i, fila in enumerate(matriz):
         for j, n in enumerate(fila):
-            ax.text(j, i, str(n), ha="center", va="center",
-                    color="white" if n > mayor / 2 else "black")
+            ax.text(
+                j, i, str(n), ha="center", va="center", color="white" if n > mayor / 2 else "black"
+            )
 
     fig.tight_layout()
     fig.savefig(out, dpi=150)
@@ -312,8 +313,13 @@ def _lamina_distribucion(plt, distribucion: dict, out: Path) -> None:
         barras = ax.bar(clases, conteos, color=_colores(clases))
         ax.set_ylabel("Filas del dataset")
         for barra, n in zip(barras, conteos, strict=True):
-            ax.text(barra.get_x() + barra.get_width() / 2, n,
-                    f"{n}\n({n / total:.1%})", ha="center", va="bottom")
+            ax.text(
+                barra.get_x() + barra.get_width() / 2,
+                n,
+                f"{n}\n({n / total:.1%})",
+                ha="center",
+                va="bottom",
+            )
         ax.margins(y=0.18)
     else:
         # Sin conteos no hay desbalance que mostrar, y el titulo de esta lamina
@@ -326,11 +332,17 @@ def _lamina_distribucion(plt, distribucion: dict, out: Path) -> None:
         # El `or 1` que estaba en el divisor tapaba esto: repartia porcentajes
         # sobre un total inventado en vez de avisar que no habia total.
         logger.warning(
-            "El metadata no trae distribucion_clases: la lamina sale diciendolo, "
-            "sin barras"
+            "El metadata no trae distribucion_clases: la lamina sale diciendolo, " "sin barras"
         )
-        ax.text(0.5, 0.5, "El metadata no guardo la distribucion de clases",
-                transform=ax.transAxes, ha="center", va="center", color=COLOR_NEUTRO)
+        ax.text(
+            0.5,
+            0.5,
+            "El metadata no guardo la distribucion de clases",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            color=COLOR_NEUTRO,
+        )
         ax.set_axis_off()
     ax.set_title("Distribucion de clases: por que el accuracy solo no alcanza")
 
@@ -339,15 +351,24 @@ def _lamina_distribucion(plt, distribucion: dict, out: Path) -> None:
     plt.close(fig)
 
 
-def _barras_medidas(ax, valores: list[float | None], corrimiento: float, ancho: float,
-                    etiqueta: str, color: str) -> None:
+def _barras_medidas(
+    ax, valores: list[float | None], corrimiento: float, ancho: float, etiqueta: str, color: str
+) -> None:
     """Las barras de los pliegues que midieron, y un `n/d` donde no hubo medicion."""
     indices, medidos = puntos_medidos(valores)
     ax.bar([i + corrimiento for i in indices], medidos, ancho, label=etiqueta, color=color)
     for i, v in enumerate(valores):
         if v is None:
-            ax.text(i + corrimiento, 0.02, "n/d", ha="center", va="bottom",
-                    fontsize=7, rotation=90, color=COLOR_NEUTRO)
+            ax.text(
+                i + corrimiento,
+                0.02,
+                "n/d",
+                ha="center",
+                va="bottom",
+                fontsize=7,
+                rotation=90,
+                color=COLOR_NEUTRO,
+            )
 
 
 def _lamina_accuracy(plt, bloque: dict, en_entrenamiento: float | None, out: Path) -> None:
@@ -359,13 +380,18 @@ def _lamina_accuracy(plt, bloque: dict, en_entrenamiento: float | None, out: Pat
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
     _barras_medidas(ax, accuracy, -ancho / 2, ancho, "Accuracy del modelo", "#2166ac")
-    _barras_medidas(ax, linea_base, ancho / 2, ancho,
-                    "Linea base (clase mas frecuente)", COLOR_NEUTRO)
+    _barras_medidas(
+        ax, linea_base, ancho / 2, ancho, "Linea base (clase mas frecuente)", COLOR_NEUTRO
+    )
 
     if en_entrenamiento is not None:
         # La distancia entre esta linea y las barras azules es la memorizacion.
-        ax.axhline(en_entrenamiento, color="#b2182b", linestyle="--",
-                   label=f"Acierto en entrenamiento ({en_entrenamiento:.2f})")
+        ax.axhline(
+            en_entrenamiento,
+            color="#b2182b",
+            linestyle="--",
+            label=f"Acierto en entrenamiento ({en_entrenamiento:.2f})",
+        )
 
     ax.set_xticks(list(x), etiquetas)
     ax.set_ylim(0, 1)
@@ -389,8 +415,7 @@ def _lamina_por_clase(plt, medidas: dict, clases: list[str], out: Path) -> None:
         # un F1 de 0.0 genuino cuando el modelo fallo del todo. Si el hueco se
         # dibujara como cero, las dos cosas quedarian como la misma barra.
         valores = [medidas["por_clase"][c][nombre] for c in clases]
-        _barras_medidas(ax, valores, (k - 1) * ancho, ancho, nombre.capitalize(),
-                        f"C{k}")
+        _barras_medidas(ax, valores, (k - 1) * ancho, ancho, nombre.capitalize(), f"C{k}")
 
     ax.set_xticks(list(x), clases, rotation=20, ha="right")
     ax.set_ylim(0, 1)
@@ -454,8 +479,15 @@ def _lamina_dispersion(plt, bloque: dict, out: Path) -> None:
             "dispersion sale sin cajas",
             metricas,
         )
-        ax.text(0.5, 0.5, "Ningun pliegue midio estas metricas",
-                transform=ax.transAxes, ha="center", va="center", color=COLOR_NEUTRO)
+        ax.text(
+            0.5,
+            0.5,
+            "Ningun pliegue midio estas metricas",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            color=COLOR_NEUTRO,
+        )
         ax.set_axis_off()
     else:
         ax.boxplot(list(con_datos.values()), tick_labels=list(con_datos), showmeans=True)
@@ -471,8 +503,15 @@ def _lamina_dispersion(plt, bloque: dict, out: Path) -> None:
         dibujadas = {e.split("\n")[0] for e in con_datos}
         faltantes = [m for m in metricas if m not in dibujadas]
         if faltantes:
-            ax.text(0.5, 0.02, f"Sin datos en ningun pliegue: {', '.join(faltantes)}",
-                    transform=ax.transAxes, ha="center", fontsize=7, color=COLOR_NEUTRO)
+            ax.text(
+                0.5,
+                0.02,
+                f"Sin datos en ningun pliegue: {', '.join(faltantes)}",
+                transform=ax.transAxes,
+                ha="center",
+                fontsize=7,
+                color=COLOR_NEUTRO,
+            )
 
     ax.set_title("Cuanto se mueve cada metrica segun quien quede afuera")
 
@@ -491,8 +530,15 @@ def _lamina_importancias(plt, pares: list[tuple[str, float]], out: Path) -> None
     else:
         # El entrenamiento pudo no haberla extraido. La lamina se emite igual y
         # lo dice: un hueco en la numeracion del documento seria peor.
-        ax.text(0.5, 0.5, "El entrenamiento no guardo la importancia de variables",
-                transform=ax.transAxes, ha="center", va="center", color=COLOR_NEUTRO)
+        ax.text(
+            0.5,
+            0.5,
+            "El entrenamiento no guardo la importancia de variables",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            color=COLOR_NEUTRO,
+        )
         ax.set_axis_off()
     ax.set_title("Que mira el modelo para decidir")
 
@@ -550,7 +596,9 @@ def generar_figuras(modelo_dir: Path, salida: Path) -> list[Path]:
             plt, metadata.get("distribucion_clases") or {}, borrador["distribucion_clases.png"]
         )
         _lamina_accuracy(
-            plt, bloque, metadata.get("acierto_en_entrenamiento"),
+            plt,
+            bloque,
+            metadata.get("acierto_en_entrenamiento"),
             borrador["accuracy_vs_linea_base.png"],
         )
         _lamina_por_clase(

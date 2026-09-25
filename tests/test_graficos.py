@@ -107,7 +107,6 @@ class TestExpandirMatriz:
         assert sorted(y_pred) == ["A", "B", "B", "B"]
         assert len(y_true) == len(y_pred) == 4
 
-
     def test_una_matriz_que_no_cuadra_con_las_clases_es_un_error_no_un_dibujo(self):
         # Las clases pueden venir del bloque y la matriz de los pliegues. Si
         # discrepan, indexar igual publicaria el recall de RiesgoCritico bajo
@@ -336,18 +335,23 @@ class TestGenerarFiguras:
             json.dumps({"gradient_boosted_trees": bloque}), encoding="utf-8"
         )
         (modelo_dir / "metadata.json").write_text(
-            json.dumps({
-                "modelo": "gradient_boosted_trees",
-                "n_filas": 19,
-                "n_estudiantes": 4,
-                "acierto_en_entrenamiento": 0.92,
-                "distribucion_clases": {
-                    "EnRiesgo": 5, "RiesgoCritico": 4, "SinRiesgo": 6, "Sobresaliente": 4
-                },
-                "importancia_variables": {
-                    "INV_MEAN_MIN_DEPTH": [['"knowing_mean" (1; #26)', 0.27]]
-                },
-            }),
+            json.dumps(
+                {
+                    "modelo": "gradient_boosted_trees",
+                    "n_filas": 19,
+                    "n_estudiantes": 4,
+                    "acierto_en_entrenamiento": 0.92,
+                    "distribucion_clases": {
+                        "EnRiesgo": 5,
+                        "RiesgoCritico": 4,
+                        "SinRiesgo": 6,
+                        "Sobresaliente": 4,
+                    },
+                    "importancia_variables": {
+                        "INV_MEAN_MIN_DEPTH": [['"knowing_mean" (1; #26)', 0.27]]
+                    },
+                }
+            ),
             encoding="utf-8",
         )
         salida = tmp_path / "figures"

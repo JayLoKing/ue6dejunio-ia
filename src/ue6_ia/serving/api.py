@@ -131,9 +131,7 @@ def _cargar_modelo() -> tuple[Any, list[str]]:
 
     meta_path = model_dir / "metadata.json"
     if not meta_path.exists():
-        raise RuntimeError(
-            f"Falta {meta_path}: sin el no se sabe con que columnas se entreno."
-        )
+        raise RuntimeError(f"Falta {meta_path}: sin el no se sabe con que columnas se entreno.")
     columnas = json.loads(meta_path.read_text(encoding="utf-8"))["features"]
 
     faltantes = [c for c in columnas if c not in FEATURE_COLS]
@@ -146,7 +144,8 @@ def _cargar_modelo() -> tuple[Any, list[str]]:
         logger.warning(
             "El modelo se entreno con %d de las %d columnas del contrato: se le "
             "envian solo esas. Reentrenar con el dataset completo.",
-            len(columnas), len(FEATURE_COLS),
+            len(columnas),
+            len(FEATURE_COLS),
         )
     return modelo, columnas
 
@@ -160,9 +159,7 @@ def _verificar_token(authorization: str = Header(default="")) -> None:
         # tiempo constante da la sensacion de proteger y no protege nada, y deja
         # calificaciones de menores detras de una puerta cuya llave esta impresa.
         logger.error("UE6_API_TOKEN sin configurar: el servicio no atiende pedidos")
-        raise HTTPException(
-            status_code=503, detail="Servicio sin token configurado"
-        )
+        raise HTTPException(status_code=503, detail="Servicio sin token configurado")
     # Tiempo constante: comparar con != filtra el token caracter por caracter.
     # Sobre bytes: `compare_digest` con str lanza TypeError si hay algo fuera de
     # ASCII, y Starlette decodifica los headers en latin-1. Un Authorization con
@@ -189,12 +186,14 @@ def _predecir(observaciones: list[tuple[ObservacionMateria, int | None]]) -> lis
     predicciones = []
     for valores in proba:
         por_clase = {c: float(p) for c, p in zip(CLASES_ORDENADAS, valores, strict=True)}
-        predicciones.append(Prediccion(
-            risk_level=CLASES_ORDENADAS[int(valores.argmax())],
-            p_reprueba=por_clase[RIESGO_CRITICO],
-            p_sobresaliente=por_clase[SOBRESALIENTE],
-            probabilidades=por_clase,
-        ))
+        predicciones.append(
+            Prediccion(
+                risk_level=CLASES_ORDENADAS[int(valores.argmax())],
+                p_reprueba=por_clase[RIESGO_CRITICO],
+                p_sobresaliente=por_clase[SOBRESALIENTE],
+                probabilidades=por_clase,
+            )
+        )
     return predicciones
 
 

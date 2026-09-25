@@ -66,9 +66,7 @@ def _observacion(fila: pd.Series) -> ObservacionMateria:
     )
 
 
-def _vector(
-    fila: pd.Series, escala: Escala, descartadas: list[tuple[str, float]]
-) -> dict:
+def _vector(fila: pd.Series, escala: Escala, descartadas: list[tuple[str, float]]) -> dict:
     """El vector de una fila, tolerando la suciedad de las planillas viejas.
 
     El filtro de rango lo hace `contract.filtrar_en_rango`, la misma funcion que
@@ -114,7 +112,8 @@ def etiquetar(dataset: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
     salida[TARGET_COL] = list(etiquetas)
     logger.info(
         "Etiquetado: %d de %d filas tienen resultado del trimestre siguiente",
-        int(pd.Series(etiquetas).notna().sum()), len(salida),
+        int(pd.Series(etiquetas).notna().sum()),
+        len(salida),
     )
     return salida
 
@@ -125,8 +124,9 @@ def _situacion_final(df_centralizador: pd.DataFrame) -> dict:
         return {}
     cen = limpiar_df_nombres(df_centralizador)
     return {
-        (fila["gestion"], fila["grado"], fila["paralelo"], fila["nombre_key"]):
-            fila.get("situacion")
+        (fila["gestion"], fila["grado"], fila["paralelo"], fila["nombre_key"]): fila.get(
+            "situacion"
+        )
         for _, fila in cen.iterrows()
     }
 
@@ -153,7 +153,8 @@ def construir_features(
         columnas = [c for c in CLAVES if c != "area"]
         reg = reg.merge(
             asis[[*columnas, "attendance_pct"]].drop_duplicates(subset=columnas),
-            on=columnas, how="left",
+            on=columnas,
+            how="left",
         )
     else:
         # Ausente, no cero: nadie midio esa asistencia.
@@ -161,8 +162,7 @@ def construir_features(
 
     situaciones = _situacion_final(df_centralizador)
     reg["situacion"] = [
-        situaciones.get((f.gestion, f.grado, f.paralelo, f.nombre_key))
-        for f in reg.itertuples()
+        situaciones.get((f.gestion, f.grado, f.paralelo, f.nombre_key)) for f in reg.itertuples()
     ]
 
     # Una sola gestion por llamada, y se verifica en vez de confiarse: hoy el
@@ -179,10 +179,7 @@ def construir_features(
     escala = escala_de(int(gestiones[0]))
     descartadas: list[tuple[str, float]] = []
     vectores = pd.DataFrame(
-        [
-            _vector(fila, escala, descartadas)
-            for _, fila in reg.iterrows()
-        ],
+        [_vector(fila, escala, descartadas) for _, fila in reg.iterrows()],
         index=reg.index,
     ).astype("float64")  # el mismo tipo que arma `serving/api.py`, o el SavedModel
     #                      queda con una firma que la inferencia no puede llamar
@@ -191,17 +188,18 @@ def construir_features(
         for dim, _ in descartadas:
             por_dimension[dim] = por_dimension.get(dim, 0) + 1
         logger.warning(
-            "%d notas fuera del rango de su dimension, descartadas: %s. "
-            "Ejemplos: %s", len(descartadas), por_dimension, descartadas[:5],
+            "%d notas fuera del rango de su dimension, descartadas: %s. " "Ejemplos: %s",
+            len(descartadas),
+            por_dimension,
+            descartadas[:5],
         )
 
     # `prom_area_trim` y `situacion` viajan sin ser features: son de donde saldra
     # la etiqueta, y esa se pone recien cuando estan los tres trimestres juntos.
-    salida = pd.concat(
-        [reg[[*CLAVES, "prom_area_trim", "situacion"]], vectores], axis=1
-    )
+    salida = pd.concat([reg[[*CLAVES, "prom_area_trim", "situacion"]], vectores], axis=1)
     logger.info(
         "Features: %d filas (estudiante x materia x trimestre), %d columnas de entrada",
-        len(salida), len(FEATURE_COLS),
+        len(salida),
+        len(FEATURE_COLS),
     )
     return salida

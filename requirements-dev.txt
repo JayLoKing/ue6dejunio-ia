@@ -1,8 +1,10 @@
 -r requirements.txt
 
 # --- Calidad de codigo ---
+# ruff hace las dos cosas: `ruff check` lintea y `ruff format` formatea, con el
+# mismo estilo que black. black estaba pinneado aca y sin instalar en el entorno,
+# asi que el formateador declarado no era el que nadie corria.
 ruff==0.8.4
-black==24.10.0
 mypy==1.13.0
 
 # --- Pruebas ---

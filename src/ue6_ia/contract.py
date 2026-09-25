@@ -84,7 +84,9 @@ def nota_aprobacion_pct() -> float:
     except Exception as e:  # noqa: BLE001 - sin config utilizable manda la RM vigente
         logger.warning(
             "Sin config utilizable (%s): la feature `below` cuenta contra %.1f, "
-            "aunque el YAML diga otra cosa.", e, _NOTA_APROBACION_POR_DEFECTO,
+            "aunque el YAML diga otra cosa.",
+            e,
+            _NOTA_APROBACION_POR_DEFECTO,
         )
         return _NOTA_APROBACION_POR_DEFECTO
 
@@ -177,11 +179,10 @@ def escala_vigente() -> Escala:
     except Exception as e:  # noqa: BLE001 - sin config utilizable manda la RM vigente
         logger.warning(
             "Sin ponderacion utilizable en config.yaml (%s): se usa la de la RM "
-            "0001/2026 (10/45/40/5).", e,
+            "0001/2026 (10/45/40/5).",
+            e,
         )
         return _ESCALA_POR_DEFECTO
-
-
 
 
 # Lo que decia el encabezado de cada registro historico.
@@ -246,9 +247,10 @@ def escala_de(gestion: int | None) -> Escala:
 # Los siete estadisticos por dimension. El orden fija el de FEATURE_COLS.
 _ESTADISTICOS = ("mean", "min", "max", "std", "count", "below", "trend")
 
-FEATURE_COLS: list[str] = [
-    f"{d}_{e}" for d in DIMENSIONES for e in _ESTADISTICOS
-] + ["attendance_pct", "progress_pct"]
+FEATURE_COLS: list[str] = [f"{d}_{e}" for d in DIMENSIONES for e in _ESTADISTICOS] + [
+    "attendance_pct",
+    "progress_pct",
+]
 
 
 @dataclass
@@ -381,9 +383,7 @@ def filtrar_en_rango(
     )
 
 
-def expandir(
-    obs: ObservacionMateria, escala: Escala | None = None
-) -> dict[str, float | None]:
+def expandir(obs: ObservacionMateria, escala: Escala | None = None) -> dict[str, float | None]:
     """La observacion como el vector que entra al modelo.
 
     `escala` es la ponderacion que regia cuando se pusieron esas notas: por
@@ -396,9 +396,7 @@ def expandir(
     escala = escala or escala_vigente()
     vector: dict[str, float | None] = {}
     for dim in DIMENSIONES:
-        stats = _estadisticos(
-            _a_porcentaje(obs.notas_de(dim), dim, escala.tope_de(dim))
-        )
+        stats = _estadisticos(_a_porcentaje(obs.notas_de(dim), dim, escala.tope_de(dim)))
         for nombre in _ESTADISTICOS:
             vector[f"{dim}_{nombre}"] = stats[nombre]
     vector["attendance_pct"] = obs.attendance_pct

@@ -98,9 +98,7 @@ def _contar_mes(grid: list[list], acfg: dict) -> dict[str, dict]:
     return out
 
 
-def load_asistencia_trimestre(
-    curso: CursoFolder, trimestre: int, cfg: AppConfig
-) -> pd.DataFrame:
+def load_asistencia_trimestre(curso: CursoFolder, trimestre: int, cfg: AppConfig) -> pd.DataFrame:
     """Devuelve attendance_pct por estudiante para el trimestre.
 
     Columnas: gestion, grado, paralelo, trimestre, nombre, attendance_pct

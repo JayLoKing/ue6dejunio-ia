@@ -62,9 +62,7 @@ def load_centralizador(curso: CursoFolder, cfg: AppConfig) -> pd.DataFrame:
                 "prom_t2": _to_float(cell(grid, r, lay["col_prom_t2"])),
                 "prom_t3": _to_float(cell(grid, r, lay["col_prom_t3"])),
                 "promedio_final": _to_float(cell(grid, r, lay["col_promedio_final"])),
-                "situacion": (
-                    str(cell(grid, r, lay["col_situacion"]) or "").strip().lower()
-                ),
+                "situacion": (str(cell(grid, r, lay["col_situacion"]) or "").strip().lower()),
             }
         )
     df = pd.DataFrame(filas)

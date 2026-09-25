@@ -38,9 +38,7 @@ def _notas_cargadas(curso: CursoFolder, cfg: AppConfig) -> int:
     return int(sum(df[d].map(len).sum() for d in DIMENSION_POR_COLUMNA))
 
 
-def _elegir_entre_duplicados(
-    cursos: list[CursoFolder], cfg: AppConfig
-) -> list[CursoFolder]:
+def _elegir_entre_duplicados(cursos: list[CursoFolder], cfg: AppConfig) -> list[CursoFolder]:
     """De cada curso repetido, la carpeta que realmente tiene notas cargadas.
 
     La carpeta trae copias del mismo curso ('- copia', '++', 'Feli ...'), y
@@ -70,7 +68,8 @@ def _elegir_entre_duplicados(
         if mejor_notas == 0:
             logger.warning(
                 "Ninguna de las %d carpetas de %s tiene notas cargadas",
-                len(candidatos), label,
+                len(candidatos),
+                label,
             )
         logger.info("%s: %d notas cargadas", label, mejor_notas)
         logger.debug("  carpeta elegida: %s", mejor.path.name)
