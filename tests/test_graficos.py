@@ -305,6 +305,29 @@ class TestLaminaDistribucion:
         assert "distribucion_clases" in caplog.text
 
 
+class TestLaminaDispersionSinMediciones:
+    """Pliegues con matriz pero sin una sola metrica medida.
+
+    Pasa con un reporte de una version que nombraba las metricas distinto, o
+    con una corrida truncada despues de la matriz. La guarda de `generar_figuras`
+    no lo agarra — la matriz esta —, y `boxplot([])` contesta "Dimensions of
+    labels and X must be compatible", que es exactamente el tipo de mensaje que
+    esa guarda existe para no mostrar.
+    """
+
+    def test_ninguna_metrica_medida_no_voltea_la_generacion(self, tmp_path, bloque):
+        for pliegue in bloque["pliegues"]:
+            for metrica in ("accuracy", "macro_f1", "recall_riesgo_critico", "linea_base"):
+                pliegue[metrica] = None
+        modelo_dir = _modelo_en(
+            tmp_path, bloque, {"modelo": "gradient_boosted_trees", "distribucion_clases": {"A": 1}}
+        )
+
+        escritas = generar_figuras(modelo_dir, tmp_path / "figures")
+
+        assert {p.name for p in escritas} == set(ARCHIVOS_ESPERADOS)
+
+
 class TestGenerarFiguras:
     def test_escribe_una_figura_por_cada_lamina_declarada(self, tmp_path, bloque):
         modelo_dir = tmp_path / "tfdf_riesgo"

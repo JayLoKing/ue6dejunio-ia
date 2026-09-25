@@ -441,22 +441,40 @@ def _lamina_dispersion(plt, bloque: dict, out: Path) -> None:
     con_datos = cajas_de_dispersion(bloque, metricas)
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
-    ax.boxplot(list(con_datos.values()), tick_labels=list(con_datos), showmeans=True)
-    # Los puntos encima de la caja: con cinco pliegues el resumen de cinco
-    # numeros esconde mas de lo que muestra.
-    for i, valores in enumerate(con_datos.values(), start=1):
-        ax.plot([i] * len(valores), valores, "o", color="#2166ac", alpha=0.6, markersize=5)
+    if not con_datos:
+        # Pliegues con matriz pero sin una sola metrica medida: un reporte de
+        # una version que las nombraba distinto, o una corrida cortada despues
+        # de escribir la matriz. La guarda de `generar_figuras` no lo ve, porque
+        # la matriz esta, y `boxplot([])` contesta "Dimensions of labels and X
+        # must be compatible" — el mismo tipo de mensaje que esa guarda existe
+        # para no mostrarle a nadie. Se emite la lamina diciendolo, igual que
+        # hacen la de importancias y la de distribucion.
+        logger.warning(
+            "Ningun pliegue midio alguna de las metricas %s: la lamina de "
+            "dispersion sale sin cajas",
+            metricas,
+        )
+        ax.text(0.5, 0.5, "Ningun pliegue midio estas metricas",
+                transform=ax.transAxes, ha="center", va="center", color=COLOR_NEUTRO)
+        ax.set_axis_off()
+    else:
+        ax.boxplot(list(con_datos.values()), tick_labels=list(con_datos), showmeans=True)
+        # Los puntos encima de la caja: con cinco pliegues el resumen de cinco
+        # numeros esconde mas de lo que muestra.
+        for i, valores in enumerate(con_datos.values(), start=1):
+            ax.plot([i] * len(valores), valores, "o", color="#2166ac", alpha=0.6, markersize=5)
 
-    ax.set_ylim(0, 1)
-    ax.set_ylabel("Valor en cada pliegue")
+        ax.set_ylim(0, 1)
+        ax.set_ylabel("Valor en cada pliegue")
+        ax.tick_params(axis="x", labelsize=8)
+
+        dibujadas = {e.split("\n")[0] for e in con_datos}
+        faltantes = [m for m in metricas if m not in dibujadas]
+        if faltantes:
+            ax.text(0.5, 0.02, f"Sin datos en ningun pliegue: {', '.join(faltantes)}",
+                    transform=ax.transAxes, ha="center", fontsize=7, color=COLOR_NEUTRO)
+
     ax.set_title("Cuanto se mueve cada metrica segun quien quede afuera")
-    ax.tick_params(axis="x", labelsize=8)
-
-    dibujadas = {e.split("\n")[0] for e in con_datos}
-    faltantes = [m for m in metricas if m not in dibujadas]
-    if faltantes:
-        ax.text(0.5, 0.02, f"Sin datos en ningun pliegue: {', '.join(faltantes)}",
-                transform=ax.transAxes, ha="center", fontsize=7, color=COLOR_NEUTRO)
 
     fig.tight_layout()
     fig.savefig(out, dpi=150)
