@@ -103,6 +103,19 @@ def matriz_confusion_acumulada(bloque: dict) -> list[list[int]]:
     memorizacion, asi que no es la que va en el documento.
     """
     pliegues = bloque.get("pliegues") or []
+    sumados, total = pliegues_sumados(bloque)
+    if sumados < total:
+        # No se puede recuperar lo que el pliegue no dejo escrito, pero callarlo
+        # convierte una cobertura parcial en una que se lee como completa: la
+        # lamina sale titulada igual y el documento la cita como el dataset
+        # entero fuera de muestra. Misma razon por la que `cajas_de_dispersion`
+        # rotula sus pliegues parciales.
+        logger.warning(
+            "La matriz acumulada suma %d de %d pliegues: los demas no trajeron "
+            "matriz_confusion, asi que no cubre el dataset entero",
+            sumados,
+            total,
+        )
     acumulada: list[list[int]] = []
     for pliegue in pliegues:
         matriz = pliegue.get("matriz_confusion")
@@ -115,6 +128,16 @@ def matriz_confusion_acumulada(bloque: dict) -> list[list[int]]:
             for j, n in enumerate(fila):
                 acumulada[i][j] += n
     return acumulada
+
+
+def pliegues_sumados(bloque: dict) -> tuple[int, int]:
+    """Cuantos pliegues entraron en la matriz acumulada, y cuantos hay.
+
+    Separado de la suma para que la diferencia se pueda afirmar en un test y
+    rotular en la lamina, en vez de quedar como un `continue` que nadie ve.
+    """
+    pliegues = bloque.get("pliegues") or []
+    return sum(1 for p in pliegues if p.get("matriz_confusion")), len(pliegues)
 
 
 def expandir_matriz(matriz: list[list[int]], clases: list[str]) -> tuple[list[str], list[str]]:
@@ -282,16 +305,34 @@ def _lamina_matriz_confusion(plt, matriz: list[list[int]], clases: list[str], ou
 def _lamina_distribucion(plt, distribucion: dict, out: Path) -> None:
     clases = sorted(distribucion, key=lambda c: distribucion[c], reverse=True)
     conteos = [distribucion[c] for c in clases]
-    total = sum(conteos) or 1
+    total = sum(conteos)
 
     fig, ax = plt.subplots(figsize=(7, 4.5))
-    barras = ax.bar(clases, conteos, color=_colores(clases))
-    ax.set_ylabel("Filas del dataset")
+    if total:
+        barras = ax.bar(clases, conteos, color=_colores(clases))
+        ax.set_ylabel("Filas del dataset")
+        for barra, n in zip(barras, conteos, strict=True):
+            ax.text(barra.get_x() + barra.get_width() / 2, n,
+                    f"{n}\n({n / total:.1%})", ha="center", va="bottom")
+        ax.margins(y=0.18)
+    else:
+        # Sin conteos no hay desbalance que mostrar, y el titulo de esta lamina
+        # es una afirmacion sobre el dataset: dibujar el eje vacio debajo de el
+        # lo convierte en una afirmacion sin respaldo que el documento cita
+        # igual. Se emite la lamina — un hueco en la numeracion seria peor — y
+        # dice en su cara que el metadata no trajo los conteos. Mismo trato que
+        # `_lamina_importancias` le da a la importancia que no se guardo.
+        #
+        # El `or 1` que estaba en el divisor tapaba esto: repartia porcentajes
+        # sobre un total inventado en vez de avisar que no habia total.
+        logger.warning(
+            "El metadata no trae distribucion_clases: la lamina sale diciendolo, "
+            "sin barras"
+        )
+        ax.text(0.5, 0.5, "El metadata no guardo la distribucion de clases",
+                transform=ax.transAxes, ha="center", va="center", color=COLOR_NEUTRO)
+        ax.set_axis_off()
     ax.set_title("Distribucion de clases: por que el accuracy solo no alcanza")
-    for barra, n in zip(barras, conteos, strict=True):
-        ax.text(barra.get_x() + barra.get_width() / 2, n,
-                f"{n}\n({n / total:.1%})", ha="center", va="bottom")
-    ax.margins(y=0.18)
 
     fig.tight_layout()
     fig.savefig(out, dpi=150)
@@ -365,10 +406,39 @@ def _lamina_por_clase(plt, medidas: dict, clases: list[str], out: Path) -> None:
     plt.close(fig)
 
 
+def cajas_de_dispersion(bloque: dict, metricas: list[str]) -> dict[str, list[float]]:
+    """Cada metrica dibujable con su etiqueta, diciendo cuantos pliegues la sostienen.
+
+    Una caja armada con cuatro de cinco pliegues se dibuja igual de firme que
+    una armada con los cinco, y ahi esta el problema: el pliegue que falta no
+    midio peor, no midio — no trajo un solo caso de la clase — y el grafico no
+    tenia como decirlo. El aviso al pie solo aparecia cuando la metrica no habia
+    medido en ningun pliegue, que es el caso que menos confunde, porque entonces
+    la caja directamente no esta.
+
+    Asi que la cuenta va en la etiqueta de la caja, donde se lee junto con ella.
+    Una metrica completa no lleva aclaracion: decir "2 de 2" en todas las cajas
+    seria ruido en el caso normal y haria menos visible el caso raro.
+
+    Se conserva el orden en que se pidieron las metricas, y no el del reporte,
+    para que dos corridas del mismo modelo produzcan la misma lamina.
+    """
+    total = len(bloque.get("pliegues") or [])
+    cajas: dict[str, list[float]] = {}
+    for metrica in metricas:
+        medidos = [v for v in serie_por_pliegue(bloque, metrica) if v is not None]
+        if not medidos:
+            continue
+        etiqueta = metrica
+        if len(medidos) < total:
+            etiqueta = f"{metrica}\n({len(medidos)} de {total} pliegues)"
+        cajas[etiqueta] = medidos
+    return cajas
+
+
 def _lamina_dispersion(plt, bloque: dict, out: Path) -> None:
     metricas = ["accuracy", "macro_f1", "recall_riesgo_critico", "linea_base"]
-    series = {m: [v for v in serie_por_pliegue(bloque, m) if v is not None] for m in metricas}
-    con_datos = {m: v for m, v in series.items() if v}
+    con_datos = cajas_de_dispersion(bloque, metricas)
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ax.boxplot(list(con_datos.values()), tick_labels=list(con_datos), showmeans=True)
@@ -380,8 +450,10 @@ def _lamina_dispersion(plt, bloque: dict, out: Path) -> None:
     ax.set_ylim(0, 1)
     ax.set_ylabel("Valor en cada pliegue")
     ax.set_title("Cuanto se mueve cada metrica segun quien quede afuera")
+    ax.tick_params(axis="x", labelsize=8)
 
-    faltantes = [m for m in metricas if not series[m]]
+    dibujadas = {e.split("\n")[0] for e in con_datos}
+    faltantes = [m for m in metricas if m not in dibujadas]
     if faltantes:
         ax.text(0.5, 0.02, f"Sin datos en ningun pliegue: {', '.join(faltantes)}",
                 transform=ax.transAxes, ha="center", fontsize=7, color=COLOR_NEUTRO)
@@ -433,6 +505,19 @@ def generar_figuras(modelo_dir: Path, salida: Path) -> list[Path]:
     bloque = _bloque_del_modelo_elegido(reporte, metadata)
     clases = clases_del_bloque(bloque, metadata)
     matriz = matriz_confusion_acumulada(bloque)
+
+    # Un reporte truncado deja el bloque sin un solo pliegue, y entonces no hay
+    # nada fuera de muestra que graficar. Se corta aca, antes de dibujar y antes
+    # de tocar el destino, porque la primera lamina llama a `imshow([])` y
+    # matplotlib contesta con un TypeError que no nombra ni el archivo ni la
+    # causa. El error tiene que decir que falta el reporte, no como se llama la
+    # funcion que se cayo.
+    if not matriz:
+        raise ValueError(
+            f"El reporte de {modelo_dir} no trae un solo pliegue con matriz de confusion: "
+            f"no hay resultados fuera de muestra que graficar. Volve a correr la validacion "
+            f"cruzada antes de generar las figuras."
+        )
 
     salida.mkdir(parents=True, exist_ok=True)
 

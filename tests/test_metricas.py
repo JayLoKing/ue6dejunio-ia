@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from ue6_ia.evaluation.metricas import (
@@ -63,6 +65,29 @@ class TestResumenClasificacion:
         assert len(matriz) == len(CLASES)
         assert matriz[0][0] == 1
         assert matriz[3][3] == 1
+
+
+    def test_una_etiqueta_fuera_de_las_clases_queda_registrada(self, caplog):
+        # La matriz solo cuenta pares cuyas dos etiquetas estan en `clases`; el
+        # accuracy cuenta todos. Con una etiqueta desconocida los dos numeros
+        # hablan de poblaciones distintas, y `graficos.expandir_matriz` vuelve a
+        # medir desde la matriz: el documento termina citando dos accuracy
+        # distintos de la misma corrida, los dos rotulados fuera de muestra.
+        y_true = ["RiesgoCritico", "Reprobado"]
+        y_pred = ["RiesgoCritico", "Reprobado"]
+
+        with caplog.at_level(logging.WARNING):
+            r = resumen_clasificacion(y_true, y_pred, CLASES)
+
+        assert sum(sum(fila) for fila in r["matriz_confusion"]) == 1
+        assert r["n"] == 2
+        assert "Reprobado" in caplog.text
+
+    def test_sin_etiquetas_desconocidas_no_se_registra_nada(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            resumen_clasificacion(["RiesgoCritico"], ["EnRiesgo"], CLASES)
+
+        assert caplog.text == ""
 
 
 class TestResumirPliegues:

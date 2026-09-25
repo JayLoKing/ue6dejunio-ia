@@ -24,8 +24,11 @@ aca no se predice un numero sino una de cuatro categorias.
 
 from __future__ import annotations
 
+import logging
 import statistics
 from collections import Counter
+
+logger = logging.getLogger(__name__)
 
 RIESGO_CRITICO = "RiesgoCritico"
 
@@ -77,9 +80,32 @@ def resumen_clasificacion(y_true: list[str], y_pred: list[str], clases: list[str
     f1s = [d["f1"] for d in por_clase.values() if d["f1"] is not None]
     indice = {c: i for i, c in enumerate(clases)}
     matriz = [[0] * len(clases) for _ in clases]
+    desconocidas: set[str] = set()
     for t, p in zip(y_true, y_pred, strict=True):
         if t in indice and p in indice:
             matriz[indice[t]][indice[p]] += 1
+        else:
+            desconocidas.update(e for e in (t, p) if e not in indice)
+
+    if desconocidas:
+        # El accuracy de arriba cuenta todos los pares; la matriz solo cuenta
+        # los que tienen sus dos etiquetas entre las clases declaradas. Con una
+        # etiqueta desconocida los dos numeros dejan de hablar de la misma
+        # poblacion, y `graficos.expandir_matriz` vuelve a medir *desde la
+        # matriz*: el documento termina citando dos accuracy distintos de la
+        # misma corrida, los dos rotulados fuera de muestra. Tampoco cierra
+        # `sum(matriz) == n`, y `n` viaja en este mismo dict.
+        #
+        # No se puede decidir aca cual es la buena — una clase nueva en los
+        # datos y un error de tipeo en la configuracion llegan iguales — pero
+        # descartarla sin decirlo es lo unico que seguro esta mal. Son nombres
+        # de clase, no de estudiantes: se pueden registrar.
+        logger.warning(
+            "Etiquetas fuera de las clases declaradas, descartadas de la matriz "
+            "de confusion pero contadas en el accuracy: %s. Las clases son %s",
+            ", ".join(sorted(desconocidas)),
+            clases,
+        )
 
     return {
         "accuracy": aciertos / len(y_true) if y_true else None,
@@ -102,14 +128,14 @@ def resumir_pliegues(pliegues: list[dict]) -> dict:
     Los `None` se descartan en vez de contarse como cero: un pliegue que no tuvo
     ni un caso de `RiesgoCritico` no midio mal, no midio nada.
     """
-    nombres = {k for p in pliegues for k, v in p.items() if isinstance(v, (int, float))}
+    nombres = {k for p in pliegues for k, v in p.items() if isinstance(v, int | float)}
     nombres |= {k for p in pliegues for k in p if p[k] is None}
 
     resumen = {}
     for nombre in sorted(nombres):
         valores = [
             p[nombre] for p in pliegues
-            if isinstance(p.get(nombre), (int, float))
+            if isinstance(p.get(nombre), int | float)
         ]
         resumen[nombre] = {
             "media": statistics.fmean(valores) if valores else None,

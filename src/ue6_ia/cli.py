@@ -97,6 +97,12 @@ def figuras(
     except ModuleNotFoundError as e:
         typer.echo(f"Falta matplotlib: pip install -r requirements-dev.txt ({e})")
         raise typer.Exit(code=1) from e
+    except ValueError as e:
+        # Reporte presente pero sin nada util adentro: truncado, o de una corrida
+        # que no llego a validar. Es tan esperable como el archivo faltante, y el
+        # mensaje ya explica que hacer — no merece un traceback.
+        typer.echo(str(e))
+        raise typer.Exit(code=1) from e
 
     for path in escritas:
         typer.echo(f"  {path}")

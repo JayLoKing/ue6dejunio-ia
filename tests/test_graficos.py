@@ -8,11 +8,13 @@ suma de los cinco pliegues si lo es, y eso es lo que se afirma aca.
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 
 from ue6_ia.evaluation.graficos import (
     ARCHIVOS_ESPERADOS,
+    cajas_de_dispersion,
     clases_del_bloque,
     expandir_matriz,
     generar_figuras,
@@ -20,6 +22,7 @@ from ue6_ia.evaluation.graficos import (
     matriz_confusion_acumulada,
     metricas_por_clase,
     nombre_de_feature,
+    pliegues_sumados,
     puntos_medidos,
     serie_por_pliegue,
 )
@@ -54,6 +57,17 @@ def bloque() -> dict:
             _pliegue([[1, 0, 1, 0], [0, 2, 0, 0], [0, 0, 2, 1], [0, 0, 1, 1]], 0.7, 0.35),
         ],
     }
+
+
+def _modelo_en(tmp_path, bloque: dict, metadata: dict):
+    """Un directorio de modelo con los dos JSON que `generar_figuras` lee."""
+    modelo_dir = tmp_path / "tfdf_riesgo"
+    modelo_dir.mkdir(exist_ok=True)
+    (modelo_dir / "reporte_validacion_cruzada.json").write_text(
+        json.dumps({"gradient_boosted_trees": bloque}), encoding="utf-8"
+    )
+    (modelo_dir / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    return modelo_dir
 
 
 class TestNombreDeFeature:
@@ -198,6 +212,99 @@ class TestImportancias:
         assert importancias_ordenadas({}, "INV_MEAN_MIN_DEPTH") == []
 
 
+class TestPliegesSumados:
+    """Cuantos pliegues entraron de verdad en la matriz acumulada.
+
+    El docstring del modulo promete que la suma cubre el dataset entero. Un
+    pliegue sin matriz se descartaba en silencio y la lamina salia igual,
+    titulada como la suma de los pliegues, con cuatro de cinco adentro. El
+    documento la cita como cobertura completa fuera de muestra.
+    """
+
+    def test_con_todos_los_pliegues_medidos_no_falta_ninguno(self, bloque):
+        assert pliegues_sumados(bloque) == (2, 2)
+
+    def test_un_pliegue_sin_matriz_se_cuenta_como_faltante(self, bloque):
+        del bloque["pliegues"][1]["matriz_confusion"]
+
+        assert pliegues_sumados(bloque) == (1, 2)
+
+    def test_un_bloque_sin_pliegues_no_suma_nada(self):
+        assert pliegues_sumados({"pliegues": []}) == (0, 0)
+
+    def test_descartar_un_pliegue_queda_registrado(self, bloque, caplog):
+        del bloque["pliegues"][1]["matriz_confusion"]
+
+        with caplog.at_level(logging.WARNING):
+            matriz_confusion_acumulada(bloque)
+
+        assert "1 de 2" in caplog.text
+
+    def test_sin_descartes_no_se_registra_nada(self, bloque, caplog):
+        with caplog.at_level(logging.WARNING):
+            matriz_confusion_acumulada(bloque)
+
+        assert caplog.text == ""
+
+
+class TestCajasDeDispersion:
+    """Que dice la caja sobre cuantos pliegues la sostienen.
+
+    Una caja armada con cuatro de cinco pliegues se dibuja igual que una armada
+    con los cinco, y se lee igual de firme. No lo es: el pliegue que falta no
+    midio peor, no midio, y quien lee el documento no tiene como saberlo.
+    """
+
+    def test_una_metrica_completa_no_lleva_aclaracion(self, bloque):
+        cajas = cajas_de_dispersion(bloque, ["accuracy"])
+
+        assert list(cajas) == ["accuracy"]
+        assert cajas["accuracy"] == [0.8, 0.7]
+
+    def test_una_metrica_medida_en_parte_de_los_pliegues_lo_dice_en_su_etiqueta(self, bloque):
+        bloque["pliegues"][1]["accuracy"] = None
+
+        cajas = cajas_de_dispersion(bloque, ["accuracy"])
+
+        assert list(cajas) == ["accuracy\n(1 de 2 pliegues)"]
+        assert list(cajas.values()) == [[0.8]]
+
+    def test_una_metrica_que_no_midio_en_ningun_pliegue_no_es_una_caja(self, bloque):
+        bloque["pliegues"][0]["accuracy"] = None
+        bloque["pliegues"][1]["accuracy"] = None
+
+        assert cajas_de_dispersion(bloque, ["accuracy"]) == {}
+
+    def test_una_metrica_que_el_reporte_no_trae_tampoco_es_una_caja(self, bloque):
+        assert cajas_de_dispersion(bloque, ["una_metrica_inventada"]) == {}
+
+    def test_conserva_el_orden_en_que_se_pidieron_las_metricas(self, bloque):
+        cajas = cajas_de_dispersion(bloque, ["linea_base", "accuracy"])
+
+        assert list(cajas) == ["linea_base", "accuracy"]
+
+
+class TestLaminaDistribucion:
+    """La lamina que sostiene el argumento del desbalance.
+
+    Sin `distribucion_clases` en el metadata salia un eje en blanco bajo el
+    titulo "por que el accuracy solo no alcanza": una afirmacion sobre el
+    dataset dibujada sin dataset. `clases_del_bloque` ya se niega a seguir con
+    esta misma entrada y por esta misma razon.
+    """
+
+    def test_sin_distribucion_la_lamina_se_emite_diciendo_que_no_hay_datos(
+        self, tmp_path, bloque, caplog
+    ):
+        modelo_dir = _modelo_en(tmp_path, bloque, {"modelo": "gradient_boosted_trees"})
+
+        with caplog.at_level(logging.WARNING):
+            escritas = generar_figuras(modelo_dir, tmp_path / "figures")
+
+        assert {p.name for p in escritas} == set(ARCHIVOS_ESPERADOS)
+        assert "distribucion_clases" in caplog.text
+
+
 class TestGenerarFiguras:
     def test_escribe_una_figura_por_cada_lamina_declarada(self, tmp_path, bloque):
         modelo_dir = tmp_path / "tfdf_riesgo"
@@ -246,6 +353,45 @@ class TestGenerarFiguras:
         escritas = generar_figuras(modelo_dir, tmp_path / "figures")
 
         assert {p.name for p in escritas} == set(ARCHIVOS_ESPERADOS)
+
+    def test_un_bloque_sin_pliegues_avisa_en_vez_de_tirar_traceback(self, tmp_path):
+        # Un reporte truncado deja el bloque sin un solo pliegue. La matriz
+        # acumulada sale vacia y `imshow([])` revienta con un TypeError de
+        # matplotlib que no le dice nada a nadie. Antes de dibujar, esto tiene
+        # que decir que no hay con que, y decirlo como un error que el CLI sabe
+        # atrapar.
+        modelo_dir = tmp_path / "tfdf_riesgo"
+        modelo_dir.mkdir()
+        (modelo_dir / "reporte_validacion_cruzada.json").write_text(
+            json.dumps({"gradient_boosted_trees": {"clases": CLASES, "pliegues": []}}),
+            encoding="utf-8",
+        )
+        (modelo_dir / "metadata.json").write_text(
+            json.dumps({"modelo": "gradient_boosted_trees"}), encoding="utf-8"
+        )
+
+        with pytest.raises(ValueError, match="pliegue"):
+            generar_figuras(modelo_dir, tmp_path / "figures")
+
+    def test_un_bloque_sin_pliegues_no_deja_figuras_a_medio_escribir(self, tmp_path):
+        # Y lo dice antes de tocar el destino: media tanda de figuras es peor
+        # que ninguna, porque el documento las citaria como si fueran de la
+        # misma corrida.
+        modelo_dir = tmp_path / "tfdf_riesgo"
+        modelo_dir.mkdir()
+        (modelo_dir / "reporte_validacion_cruzada.json").write_text(
+            json.dumps({"gradient_boosted_trees": {"clases": CLASES, "pliegues": []}}),
+            encoding="utf-8",
+        )
+        (modelo_dir / "metadata.json").write_text(
+            json.dumps({"modelo": "gradient_boosted_trees"}), encoding="utf-8"
+        )
+        salida = tmp_path / "figures"
+
+        with pytest.raises(ValueError):
+            generar_figuras(modelo_dir, salida)
+
+        assert not salida.exists() or not list(salida.iterdir())
 
     def test_sin_reporte_de_validacion_avisa_en_vez_de_romper_a_medias(self, tmp_path):
         # Un modelo entrenado por una version vieja no trae el reporte. Escribir
