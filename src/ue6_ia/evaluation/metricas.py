@@ -1,7 +1,7 @@
 """Como se mide un clasificador de riesgo academico, y por que asi.
 
 El accuracy solo no sirve aca. Las clases estan desbalanceadas —`RiesgoCritico`
-es el 6.6% de las filas— asi que un modelo que jamas prediga riesgo puede sacar
+es el 4.6% de las filas, 50 de 1092— asi que un modelo que jamas prediga riesgo puede sacar
 un numero alto y no servir para nada. Y el objetivo del sistema no es acertar en
 promedio: es **avisarle al docente antes de que el estudiante repruebe**.
 

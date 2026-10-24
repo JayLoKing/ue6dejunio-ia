@@ -183,6 +183,28 @@ class TestRegistroDesdeEntradas:
 
         assert fila["training_loss"] is None
 
+    def test_una_entrada_sin_iteracion_se_descarta_y_no_cae_en_la_cero(self):
+        entradas = [
+            _Entrada(
+                number_of_trees=None,
+                training_loss=1.1,
+                training_secondary_metrics=[0.5],
+                validation_loss=1.2,
+                validation_secondary_metrics=[0.4],
+            ),
+            _Entrada(
+                number_of_trees=2,
+                training_loss=1.0,
+                training_secondary_metrics=[0.6],
+                validation_loss=1.1,
+                validation_secondary_metrics=[0.5],
+            ),
+        ]
+
+        registro = registro_desde_entradas(entradas)
+
+        assert [fila["iteracion"] for fila in registro] == [2]
+
 
 class TestIteracionesDelRegistro:
     def test_distingue_donde_paro_de_la_mejor_validacion(self):

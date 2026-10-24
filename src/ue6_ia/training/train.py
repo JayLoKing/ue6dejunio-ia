@@ -316,7 +316,7 @@ def describir_particion(
                     "la particion tiene que ser por estudiante"
                 )
 
-    descripcion: dict[str, float | int] = {}
+    descripcion: dict[str, float | int | None] = {}
     for lado, valores in conjuntos.items():
         descripcion[f"filas_{lado}"] = len(valores)
         descripcion[f"estudiantes_{lado}"] = len(estudiantes[lado])
@@ -365,17 +365,26 @@ def registro_desde_entradas(entradas: Iterable[Any]) -> list[dict]:
 
     `training_secondary_metrics[0]` y `validation_secondary_metrics[0]` son el
     accuracy en un clasificador.
+
+    Una entrada sin `number_of_trees` no tiene donde ubicarse en el eje de
+    iteraciones: se descarta avisando, en vez de dibujarla en la iteracion 0.
     """
-    return [
-        {
-            "iteracion": int(getattr(e, "number_of_trees", 0) or 0),
-            "training_loss": _campo(e, "training_loss"),
-            "training_accuracy": _primero(e, "training_secondary_metrics"),
-            "validation_loss": _campo(e, "validation_loss"),
-            "validation_accuracy": _primero(e, "validation_secondary_metrics"),
-        }
-        for e in entradas
-    ]
+    registro = []
+    for e in entradas:
+        iteracion = _campo(e, "number_of_trees")
+        if iteracion is None:
+            logger.warning("Entrada del registro del GBT sin number_of_trees: descartada")
+            continue
+        registro.append(
+            {
+                "iteracion": int(iteracion),
+                "training_loss": _campo(e, "training_loss"),
+                "training_accuracy": _primero(e, "training_secondary_metrics"),
+                "validation_loss": _campo(e, "validation_loss"),
+                "validation_accuracy": _primero(e, "validation_secondary_metrics"),
+            }
+        )
+    return registro
 
 
 def iteraciones_del_registro(registro: list[dict] | None) -> dict:
@@ -793,7 +802,7 @@ def entrenar(dataset: pd.DataFrame, cfg: AppConfig | None = None, detalle: bool 
 def _elegir(comparacion: dict) -> str:
     """Empata por macro F1 y desempata por a cuantos chicos en riesgo detecta.
 
-    Macro F1 primero y no accuracy: con `RiesgoCritico` en el 6.6% de las filas, el
+    Macro F1 primero y no accuracy: con `RiesgoCritico` en el 4.6% de las filas, el
     accuracy premia al modelo que nunca lo predice.
 
     Pero macro F1 solo tampoco alcanza. Los dos modelos dan practicamente el mismo
