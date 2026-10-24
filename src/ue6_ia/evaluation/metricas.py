@@ -140,3 +140,26 @@ def resumir_pliegues(pliegues: list[dict]) -> dict:
             "pliegues": len(valores),
         }
     return resumen
+
+
+def promedios_por_clase(por_clase: dict) -> dict:
+    """Los renglones `macro` y `ponderado` del reporte por clase.
+
+    Macro da a cada clase el mismo peso, asi que `RiesgoCritico` cuenta igual que
+    las clases abundantes; ponderado pesa cada clase por su soporte y se parece al
+    accuracy. Hacen falta los dos: la distancia entre ellos es cuanto peor le va
+    al modelo con las clases chicas.
+
+    Una clase que no midio (`None`) queda afuera del promedio, no entra como cero:
+    la misma regla que `resumen_clasificacion` aplica al macro F1.
+    """
+    soporte_total = sum(d["soporte"] for d in por_clase.values())
+    promedios: dict[str, dict] = {"macro": {}, "ponderado": {}}
+    for nombre in ("precision", "recall", "f1"):
+        medidas = [(d[nombre], d["soporte"]) for d in por_clase.values() if d[nombre] is not None]
+        peso = sum(s for _, s in medidas)
+        promedios["macro"][nombre] = statistics.fmean(v for v, _ in medidas) if medidas else None
+        promedios["ponderado"][nombre] = sum(v * s for v, s in medidas) / peso if peso else None
+    promedios["macro"]["soporte"] = soporte_total
+    promedios["ponderado"]["soporte"] = soporte_total
+    return promedios

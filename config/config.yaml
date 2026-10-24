@@ -110,3 +110,9 @@ entrenamiento:
   # vistos, y a igualdad —diferencia menor al desvio entre pliegues— el que mas
   # casos de RiesgoCritico detecta.
   modelos: ["gradient_boosted_trees", "random_forest"]
+  # Ponderacion de clases: `ninguna`, `balanceada`, o una lista con las dos. Cada
+  # modelo se evalua con cada ponderacion listada, y `_elegir` decide entre todos
+  # los candidatos con la misma regla. Balanceada: cada fila pesa
+  # n / (k * n_de_su_clase), calculado solo con las filas que se ajustan.
+  # Sin esta clave se compara solo `ninguna`.
+  ponderacion_clases: ["ninguna", "balanceada"]

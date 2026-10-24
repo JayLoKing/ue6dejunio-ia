@@ -8,6 +8,7 @@ import pytest
 
 from ue6_ia.evaluation.metricas import (
     linea_base_mayoritaria,
+    promedios_por_clase,
     resumen_clasificacion,
     resumir_pliegues,
 )
@@ -240,3 +241,37 @@ class TestGuardaDeGestion:
         cfg = AppConfig(raw={"riesgo": {}}, env=EnvSettings())
         with _pytest.raises(ValueError, match="una sola gestion"):
             construir_features(reg, pd.DataFrame(), pd.DataFrame(), cfg)
+
+
+class TestPromediosPorClase:
+    """Los dos renglones de abajo del reporte por clase: macro y ponderado."""
+
+    def test_macro_promedia_las_clases_y_ponderado_las_pesa_por_soporte(self):
+        por_clase = {
+            "A": {"precision": 1.0, "recall": 0.5, "f1": 2 / 3, "soporte": 2},
+            "B": {"precision": 0.5, "recall": 1.0, "f1": 2 / 3, "soporte": 6},
+        }
+
+        promedios = promedios_por_clase(por_clase)
+
+        assert promedios["macro"]["precision"] == pytest.approx(0.75)
+        assert promedios["ponderado"]["recall"] == pytest.approx((0.5 * 2 + 1.0 * 6) / 8)
+        assert promedios["macro"]["soporte"] == promedios["ponderado"]["soporte"] == 8
+
+    def test_una_clase_que_no_midio_no_entra_como_cero(self):
+        por_clase = {
+            "A": {"precision": None, "recall": 0.0, "f1": 0.0, "soporte": 3},
+            "B": {"precision": 0.8, "recall": 0.8, "f1": 0.8, "soporte": 3},
+        }
+
+        promedios = promedios_por_clase(por_clase)
+
+        assert promedios["macro"]["precision"] == pytest.approx(0.8)
+        assert promedios["ponderado"]["precision"] == pytest.approx(0.8)
+
+    def test_sin_soporte_no_hay_ponderado(self):
+        promedios = promedios_por_clase(
+            {"A": {"precision": None, "recall": None, "f1": None, "soporte": 0}}
+        )
+
+        assert promedios["ponderado"]["f1"] is None
