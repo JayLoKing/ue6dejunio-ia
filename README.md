@@ -170,13 +170,20 @@ El proyecto vive en `/mnt/d` (DrvFs), donde `pip install -e .` falla por permiso
 Por eso se ejecuta con `PYTHONPATH=src` (sin instalar el paquete):
 
 ```bash
-PYTHONPATH=src python -m ue6_ia.cli build-dataset   # Excel → data/processed/dataset_entrenamiento.parquet
+PYTHONPATH=src python -m ue6_ia.cli build-dataset   # Excel → data/processed/dataset_entrenamiento.parquet (+ resumen)
 PYTHONPATH=src python -m ue6_ia.cli train           # entrena TF-DF → models/tfdf_riesgo/
+PYTHONPATH=src python -m ue6_ia.cli train --detalle # ídem, con el registro de TF-DF iteración por iteración
+PYTHONPATH=src python -m ue6_ia.cli metricas        # vuelve a imprimir las tablas del entrenamiento (sin TF)
 PYTHONPATH=src python -m ue6_ia.cli evaluate        # matriz de confusión, F1, importancia de variables
 PYTHONPATH=src python -m ue6_ia.cli all             # las tres en secuencia
 PYTHONPATH=src python -m ue6_ia.cli figuras         # láminas del modelo → reports/figures/ (ver reports/LAMINAS.md)
 PYTHONPATH=src python -m ue6_ia.cli serve           # levanta el servicio de inferencia
 ```
+
+`train` compara cuatro candidatos —GBT y Random Forest, con y sin ponderación de
+clases (`entrenamiento.ponderacion_clases` en `config.yaml`)— con validación
+cruzada agrupada por estudiante, y guarda en `metadata.json` (`seleccion`) por qué
+ganó el que ganó. `metricas` reimprime esas tablas sin TensorFlow.
 
 > Para no repetir `PYTHONPATH=src`: `export PYTHONPATH=src` al inicio de la
 > sesión (estando en la carpeta del proyecto), o configúralo en VS Code
