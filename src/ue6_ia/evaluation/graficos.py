@@ -605,7 +605,7 @@ def _lamina_distribucion(plt, distribucion: dict, out: Path) -> None:
         # El `or 1` que estaba en el divisor tapaba esto: repartia porcentajes
         # sobre un total inventado en vez de avisar que no habia total.
         logger.warning(
-            "El metadata no trae distribucion_clases: la lamina sale diciendolo, " "sin barras"
+            "El metadata no trae distribucion_clases: la lamina sale diciendolo, sin barras"
         )
         ax.text(
             0.5,
@@ -1259,7 +1259,9 @@ def _resumen_de_curvas(curvas: tuple | None, clases: list[str]) -> dict | None:
     if curvas is None:
         return None
     por_umbral, umbrales = curvas
-    medio = umbrales.index(0.5)
+    # El mas cercano a 0.5 y no `index(0.5)`: con una cantidad par de puntos
+    # el 0.5 exacto no esta en la grilla.
+    medio = min(range(len(umbrales)), key=lambda i: abs(umbrales[i] - 0.5))
 
     def punto(valor: float) -> float | None:
         return None if math.isnan(valor) else round(valor, 4)
