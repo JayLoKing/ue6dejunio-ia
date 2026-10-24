@@ -256,3 +256,15 @@ class TestTablaDeSeleccion:
 
         estados = {fila[0]: fila[-1] for fila in tabla.filas}
         assert estados["b"] == "Fuera de la banda (n/d)"
+
+
+class TestTablaParticionFinal:
+    def test_un_dato_faltante_se_lee_n_d_sin_signo_de_porcentaje(self):
+        from ue6_ia.evaluation.consola import tabla_particion_final
+
+        tabla = tabla_particion_final(
+            {"modelo": "random_forest", "particion": {"filas_entrenamiento": 1092}}
+        )
+
+        (fila,) = tabla.filas
+        assert fila == ["Entrenamiento", "1092", "n/d", "n/d", "n/d"]

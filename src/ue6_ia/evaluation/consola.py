@@ -71,6 +71,15 @@ def _pct(parte: int, total: int) -> str:
     return "n/d" if not total else f"{100 * parte / total:.1f}%"
 
 
+def _porcentaje(valor: float | None) -> str:
+    """Un porcentaje ya calculado, o `n/d` sin el signo que lo haria pasar por medida."""
+    return "n/d" if valor is None else f"{valor:.1f}%"
+
+
+def _cuenta(valor: int | None) -> str:
+    return "n/d" if valor is None else str(valor)
+
+
 # --------------------------------------------------------------------------
 # build-dataset
 # --------------------------------------------------------------------------
@@ -315,9 +324,9 @@ def tabla_particion_final(modelo_final: dict) -> Tabla:
             [
                 nombre,
                 str(filas),
-                _num(particion.get(f"pct_filas_{lado}"), 1) + "%",
-                str(particion.get(f"estudiantes_{lado}")),
-                _num(particion.get(f"pct_estudiantes_{lado}"), 1) + "%",
+                _porcentaje(particion.get(f"pct_filas_{lado}")),
+                _cuenta(particion.get(f"estudiantes_{lado}")),
+                _porcentaje(particion.get(f"pct_estudiantes_{lado}")),
             ]
         )
     entrenadas = iteraciones.get("iteraciones_entrenadas")

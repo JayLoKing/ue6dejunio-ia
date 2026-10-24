@@ -97,7 +97,8 @@ def _notas_cargadas(curso: CursoFolder, cfg: AppConfig) -> int:
     try:
         df = load_registro_trimestre(curso, 1, cfg)
     except Exception as e:  # noqa: BLE001 - una copia rota no puede voltear el pipeline
-        logger.warning("No se pudo leer %s: %s", curso.path.name, e)
+        # La etiqueta y no el nombre de carpeta: ese lleva el de la docente.
+        logger.warning("No se pudo leer %s: %s", curso.label, e)
         return 0
     if df.empty:
         return 0
