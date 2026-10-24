@@ -136,11 +136,17 @@ def construir_features(
     df_centralizador: pd.DataFrame,
     df_asistencia: pd.DataFrame,
     cfg: AppConfig,
+    descartes: dict[str, int] | None = None,
 ) -> pd.DataFrame:
     """La matriz final: claves, treinta features y lo que hara falta para etiquetar.
 
     La etiqueta NO se pone aca: la agrega `etiquetar()` cuando estan los tres
     trimestres juntos, porque mira el siguiente.
+
+    Args:
+        descartes: si se pasa, acumula por dimension cuantas notas fuera de rango
+            se descartaron. Es el mismo conteo que va al `logger.warning`, juntado
+            para el resumen que imprime `build-dataset`.
     """
     if df_registro.empty:
         logger.warning("Registro vacio: no se pueden construir features")
@@ -187,6 +193,9 @@ def construir_features(
         por_dimension: dict[str, int] = {}
         for dim, _ in descartadas:
             por_dimension[dim] = por_dimension.get(dim, 0) + 1
+        if descartes is not None:
+            for dim, n in por_dimension.items():
+                descartes[dim] = descartes.get(dim, 0) + n
         logger.warning(
             "%d notas fuera del rango de su dimension, descartadas: %s. " "Ejemplos: %s",
             len(descartadas),

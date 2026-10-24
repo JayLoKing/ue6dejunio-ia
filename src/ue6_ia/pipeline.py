@@ -8,6 +8,7 @@ todo en un unico DataFrame que se guarda en data/processed.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
@@ -24,6 +25,71 @@ logger = logging.getLogger(__name__)
 # El nombre lo sabe este modulo y lo importa quien lo necesite: escrito dos veces,
 # cambiarlo en uno dejaba al CLI diciendo "falta el dataset" recien construido.
 NOMBRE_DATASET = "dataset_entrenamiento.parquet"
+
+
+@dataclass
+class ResumenDataset:
+    """Lo que produjo el procesamiento, contado en filas y carpetas, nunca en nombres.
+
+    El pipeline ya calculaba todo esto y lo dejaba repartido en lineas de log por
+    curso. Juntarlo aca es lo que permite imprimir un bloque final legible —el que
+    va a la captura del documento— sin volver a recorrer las planillas.
+
+    Un cero aca es un conteo, no un dato faltante: se revisaron las notas y
+    ninguna cayo fuera de rango, o ninguna fila quedo sin etiqueta.
+    """
+
+    gestiones: list[int]
+    carpetas_encontradas: int = 0
+    duplicados_descartados: int = 0
+    cursos_procesados: int = 0
+    cursos_con_filas: int = 0
+    trimestres_leidos: int = 0
+    filas_features: int = 0
+    notas_fuera_de_rango: dict[str, int] = field(default_factory=dict)
+    filas_con_etiqueta: int = 0
+    filas_sin_etiqueta: int = 0
+    filas_sin_etiqueta_por_trimestre: dict[int, int] = field(default_factory=dict)
+    filas_descartadas_sin_etiqueta: int = 0
+    filas_finales: int = 0
+    estudiantes: int = 0
+    materias: int = 0
+    filas_por_gestion: dict[int, int] = field(default_factory=dict)
+    filas_por_trimestre: dict[int, int] = field(default_factory=dict)
+    distribucion_clases: dict[str, int] = field(default_factory=dict)
+
+
+def _conteo(serie: pd.Series) -> dict:
+    """Cuantas filas por valor, ordenado por valor y con claves nativas de Python."""
+    # `.item()` convierte el escalar de numpy en el de Python: un `np.int64` como
+    # clave no se puede volcar a JSON.
+    return {
+        (k.item() if hasattr(k, "item") else k): int(v)
+        for k, v in serie.value_counts().sort_index().items()
+    }
+
+
+def completar_resumen(
+    resumen: ResumenDataset, etiquetado: pd.DataFrame, final: pd.DataFrame
+) -> ResumenDataset:
+    """Agrega al resumen lo que dicen el dataset etiquetado y el final.
+
+    `etiquetado` es el dataset con la etiqueta puesta y antes de filtrar; `final`
+    es el que se guarda. La diferencia entre los dos son las filas que no tienen
+    trimestre siguiente con que etiquetarse.
+    """
+    con_etiqueta = etiquetado[TARGET_COL].notna()
+    resumen.filas_con_etiqueta = int(con_etiqueta.sum())
+    resumen.filas_sin_etiqueta = int((~con_etiqueta).sum())
+    resumen.filas_sin_etiqueta_por_trimestre = _conteo(etiquetado.loc[~con_etiqueta, "trimestre"])
+    resumen.filas_descartadas_sin_etiqueta = len(etiquetado) - len(final)
+    resumen.filas_finales = len(final)
+    resumen.estudiantes = int(final["nombre_key"].nunique())
+    resumen.materias = int(final["area"].nunique())
+    resumen.filas_por_gestion = _conteo(final["gestion"])
+    resumen.filas_por_trimestre = _conteo(final["trimestre"])
+    resumen.distribucion_clases = _conteo(final[TARGET_COL].dropna())
+    return resumen
 
 
 def _notas_cargadas(curso: CursoFolder, cfg: AppConfig) -> int:
@@ -83,42 +149,61 @@ def construir_dataset(cfg: AppConfig | None = None, solo_etiquetados: bool = Tru
     Args:
         solo_etiquetados: si True, descarta filas sin risk_level (para entrenar).
     """
+    return construir_dataset_con_resumen(cfg, solo_etiquetados)[0]
+
+
+def construir_dataset_con_resumen(
+    cfg: AppConfig | None = None, solo_etiquetados: bool = True
+) -> tuple[pd.DataFrame, ResumenDataset]:
+    """Lo mismo que `construir_dataset`, y ademas el resumen de lo que paso."""
     cfg = cfg or get_config()
     gestiones = set(cfg["entrenamiento"]["gestiones_entrenamiento"])
+    resumen = ResumenDataset(gestiones=sorted(gestiones))
 
     # Entrenamiento = SOLO gestiones pasadas. El 2026 se centraliza en el
     # sistema y se predice via API (no se procesa aqui).
     cursos = discover_cursos(cfg.dir_pasados)
     cursos = [c for c in cursos if c.gestion in gestiones]
+    resumen.carpetas_encontradas = len(cursos)
 
     cursos = _elegir_entre_duplicados(cursos, cfg)
+    resumen.duplicados_descartados = resumen.carpetas_encontradas - len(cursos)
+    resumen.cursos_procesados = len(cursos)
     logger.info("Cursos a procesar (gestiones %s): %d", sorted(gestiones), len(cursos))
 
     partes = []
     for curso in cursos:
         cen = load_centralizador(curso, cfg)
+        aporto = False
         for trimestre in (1, 2, 3):
             reg = load_registro_trimestre(curso, trimestre, cfg)
             if reg.empty:
                 continue
+            resumen.trimestres_leidos += 1
             asis = load_asistencia_trimestre(curso, trimestre, cfg)
-            feats = construir_features(reg, cen, asis, cfg)
+            feats = construir_features(reg, cen, asis, cfg, descartes=resumen.notas_fuera_de_rango)
             if not feats.empty:
                 partes.append(feats)
+                aporto = True
+        resumen.cursos_con_filas += int(aporto)
 
     if not partes:
         logger.error("No se genero ninguna fila. Revisa rutas/layout en config.yaml")
-        return pd.DataFrame()
+        return pd.DataFrame(), resumen
 
     # La etiqueta se pone recien aca: mira el trimestre siguiente de la misma
     # materia, y para eso los tres trimestres tienen que estar juntos. Puesta por
     # trimestre suelto, ninguna fila encontraba pareja y todas salian sin etiqueta.
-    dataset = etiquetar(pd.concat(partes, ignore_index=True), cfg)
+    crudo = pd.concat(partes, ignore_index=True)
+    resumen.filas_features = len(crudo)
+    etiquetado = etiquetar(crudo, cfg)
+    dataset = etiquetado
     if solo_etiquetados:
-        dataset = dataset[dataset[TARGET_COL].notna()].reset_index(drop=True)
+        dataset = etiquetado[etiquetado[TARGET_COL].notna()].reset_index(drop=True)
 
+    completar_resumen(resumen, etiquetado, dataset)
     logger.info("Dataset final: %d filas", len(dataset))
-    return dataset
+    return dataset, resumen
 
 
 def guardar_dataset(dataset: pd.DataFrame, cfg: AppConfig | None = None) -> Path:

@@ -1,7 +1,8 @@
 """CLI de pipelines.  Uso:
 
 python -m ue6_ia.cli build-dataset      # Excel -> data/processed/*.parquet
-python -m ue6_ia.cli train              # entrena y guarda el modelo
+python -m ue6_ia.cli train              # entrena y guarda el modelo (--detalle: log de TF-DF)
+python -m ue6_ia.cli metricas           # vuelve a imprimir las tablas del entrenamiento
 python -m ue6_ia.cli evaluate           # reporte sobre el dataset
 python -m ue6_ia.cli figuras            # laminas del modelo para el documento
 python -m ue6_ia.cli all                # build-dataset + train + evaluate
@@ -15,7 +16,7 @@ import pandas as pd
 import typer
 
 from .config import get_config
-from .pipeline import NOMBRE_DATASET, construir_dataset, guardar_dataset
+from .pipeline import NOMBRE_DATASET, construir_dataset_con_resumen, guardar_dataset
 
 app = typer.Typer(add_completion=False, help="Pipeline de riesgo academico UE6")
 
@@ -28,16 +29,25 @@ def _ruta_dataset() -> Path:
 @app.command("build-dataset")
 def build_dataset() -> None:
     """Lee los Excel y construye la matriz de features."""
+    from .evaluation.consola import imprimir, tablas_resumen_dataset
+
     cfg = get_config()
-    ds = construir_dataset(cfg)
+    ds, resumen = construir_dataset_con_resumen(cfg)
     if ds.empty:
         raise typer.Exit(code=1)
     guardar_dataset(ds, cfg)
+    imprimir(tablas_resumen_dataset(resumen), "Resumen del procesamiento del dataset")
     typer.echo(f"OK: {len(ds)} filas")
 
 
 @app.command()
-def train() -> None:
+def train(
+    detalle: bool = typer.Option(
+        False,
+        "--detalle",
+        help="Muestra el registro de TF-DF iteracion por iteracion al entrenar el modelo final.",
+    ),
+) -> None:
     """Entrena el modelo TF-DF con el dataset ya construido."""
     from .training.train import entrenar
 
@@ -46,8 +56,27 @@ def train() -> None:
         typer.echo("Falta el dataset. Corre primero: build-dataset")
         raise typer.Exit(code=1)
     ds = pd.read_parquet(path)
-    out = entrenar(ds)
+    out = entrenar(ds, detalle=detalle)
     typer.echo(f"Modelo guardado en {out}")
+    _imprimir_metricas(out)
+
+
+def _imprimir_metricas(modelo_dir: Path) -> None:
+    from .evaluation.consola import imprimir, tablas_de_entrenamiento
+
+    imprimir(tablas_de_entrenamiento(modelo_dir), "Resultados del entrenamiento")
+
+
+@app.command()
+def metricas() -> None:
+    """Imprime las tablas del ultimo entrenamiento, leidas de models/. No usa TensorFlow."""
+    from .training.train import MODEL_SUBDIR
+
+    try:
+        _imprimir_metricas(get_config().models_dir / MODEL_SUBDIR)
+    except FileNotFoundError as e:
+        typer.echo(str(e))
+        raise typer.Exit(code=1) from e
 
 
 @app.command()
@@ -82,7 +111,12 @@ def figuras(
     import json
 
     from .config import REPO_ROOT
-    from .evaluation.graficos import SUBDIR_FIGURAS, generar_figuras, resumen_para_documentar
+    from .evaluation.graficos import (
+        ARCHIVOS_OPCIONALES,
+        SUBDIR_FIGURAS,
+        generar_figuras,
+        resumen_para_documentar,
+    )
     from .training.train import MODEL_SUBDIR
 
     cfg = get_config()
@@ -106,6 +140,10 @@ def figuras(
 
     for path in escritas:
         typer.echo(f"  {path}")
+    omitidas = sorted(set(ARCHIVOS_OPCIONALES) - {p.name for p in escritas})
+    for nombre in omitidas:
+        # El motivo exacto va en el aviso del log; aca, lo que hay que hacer.
+        typer.echo(f"  omitida: {nombre} (el modelo no trae su entrada; reentrena con train)")
     typer.echo(f"OK: {len(escritas)} figuras en {destino}")
 
     if resumen:
@@ -116,7 +154,9 @@ def figuras(
 def run_all() -> None:
     """Ejecuta build-dataset + train + evaluate en secuencia."""
     build_dataset()
-    train()
+    # Llamado directo, sin Typer de por medio: sin el argumento, `detalle`
+    # recibiria el `OptionInfo` del default, que es verdadero.
+    train(detalle=False)
     evaluate()
 
 
