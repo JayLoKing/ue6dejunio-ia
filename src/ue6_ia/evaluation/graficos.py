@@ -8,10 +8,12 @@ esto cargara el modelo, las figuras del documento solo se podrian regenerar
 desde alli. Leyendo los reportes se regeneran en cualquier maquina con
 matplotlib, que es donde se escribe el documento.
 
-El precio es que lo que no quedo guardado no se puede graficar: la curva de
-entrenamiento del GBT (logloss contra numero de arboles) vive en
-`make_inspector().training_logs()` y el entrenamiento no la persiste, asi que no
-hay lamina para ella.
+El precio es que lo que no quedo guardado no se puede graficar. Por eso el
+entrenamiento persiste, ademas de los JSON, `registro_entrenamiento.json` (la
+perdida y el accuracy de cada iteracion del GBT, por pliegue y del modelo final)
+y `predicciones_fuera_de_pliegue.parquet` (las probabilidades de cada fila,
+predichas por el pliegue que no la vio). Un modelo entrenado antes de que
+existieran no los trae: sus laminas se omiten avisando, y las demas salen igual.
 
 QUE MUESTRA CADA LAMINA
 -----------------------
@@ -32,22 +34,38 @@ QUE MUESTRA CADA LAMINA
    con desvio del mismo tamano no es un resultado confiable.
 6. `importancia_variables.png` — que mira el modelo para decidir. Es la ventaja
    de los arboles sobre una red: se puede responder esa pregunta.
+7. `matriz_confusion_normalizada.png` — la misma matriz en porcentaje de cada
+   clase real. Con `RiesgoCritico` en 50 filas y las otras en ~350, los conteos
+   esconden que la clase chica es la peor detectada.
+8. `resultados_entrenamiento.png` — perdida y accuracy contra el numero de
+   iteraciones, en entrenamiento y en el conjunto de parada temprana. Necesita
+   `registro_entrenamiento.json`.
+   Para un Random Forest, la evaluacion fuera de bolsa contra el numero de
+   arboles.
+9. `curva_precision_confianza.png` y 10. `curva_recall_confianza.png` — que pasa
+   con la precision y el recall de cada clase al exigir mas confianza. Necesitan
+   `predicciones_fuera_de_pliegue.parquet`.
+11. `comparacion_candidatos.png` — macro F1 y recall critico de cada candidato,
+   con la banda de empate: por que gano el que gano.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import tempfile
 from pathlib import Path
 from typing import Any
 
-from .metricas import RIESGO_CRITICO, resumen_clasificacion
+from .metricas import RIESGO_CRITICO, promedios_por_clase, resumen_clasificacion
 
 logger = logging.getLogger(__name__)
 
 REPORTE_VALIDACION = "reporte_validacion_cruzada.json"
 METADATA = "metadata.json"
+REGISTRO_ENTRENAMIENTO = "registro_entrenamiento.json"
+PREDICCIONES_FUERA_DE_PLIEGUE = "predicciones_fuera_de_pliegue.parquet"
 
 # `.gitignore` ya reserva esta ruta: las figuras son artefactos regenerables y no
 # se versionan, igual que el modelo y el dataset.
@@ -65,7 +83,35 @@ ARCHIVOS_ESPERADOS = (
     "metricas_por_clase.png",
     "dispersion_pliegues.png",
     "importancia_variables.png",
+    # Sale de la misma matriz acumulada que la primera, asi que nunca falta.
+    "matriz_confusion_normalizada.png",
+    # Sale del reporte de validacion, que siempre esta.
+    "comparacion_candidatos.png",
 )
+
+# Las que dependen de archivos que un modelo viejo no trae. Faltando su entrada se
+# omiten con un aviso; no voltean a las demas.
+ARCHIVOS_OPCIONALES = (
+    "resultados_entrenamiento.png",
+    "curva_precision_confianza.png",
+    "curva_recall_confianza.png",
+)
+
+# Los nombres de las clases como se leen en el documento. El identificador sigue
+# siendo el de `labeling.CLASES`; esto es solo lo que se escribe en la lamina.
+ETIQUETA_CLASE = {
+    "RiesgoCritico": "Riesgo crítico",
+    "EnRiesgo": "En riesgo",
+    "SinRiesgo": "Sin riesgo",
+    "Sobresaliente": "Sobresaliente",
+}
+
+# De la mas grave a la mejor. Las tablas y la matriz normalizada se leen en este
+# orden, no en el alfabetico que indexa al modelo.
+ORDEN_SEVERIDAD = ("RiesgoCritico", "EnRiesgo", "SinRiesgo", "Sobresaliente")
+
+# Cuantos umbrales de confianza recorre cada curva, de 0 a 1 inclusive.
+PUNTOS_DE_UMBRAL = 101
 
 # Un color por clase, estable en todas las laminas: la misma clase tiene que ser
 # del mismo color en la matriz y en las barras, o los graficos se leen mal al
@@ -213,13 +259,59 @@ def importancias_ordenadas(
     return pares[:tope]
 
 
+def candidato_elegido(metadata: dict) -> str | None:
+    """La clave del candidato que gano: `candidato`, o `modelo` en un metadata viejo.
+
+    Desde que se compara con y sin ponderacion, `modelo` guarda el tipo base (lo
+    que entiende quien sirve) y la clave del reporte va en `candidato`.
+    """
+    return metadata.get("candidato") or metadata.get("modelo")
+
+
+def resumen_de_candidatos(reporte: dict, metadata: dict) -> dict:
+    """Macro F1 y recall critico de cada candidato, el ganador y la banda de empate.
+
+    La banda es `[mejor macro F1 - ancho, mejor macro F1]`. Se toma de la
+    `seleccion` que guardo el entrenamiento; si el metadata es anterior, se
+    recalcula con la misma regla (el mayor desvio de macro F1).
+    """
+    ganador = candidato_elegido(metadata)
+    filas = []
+    for clave, bloque in reporte.items():
+        resumen = bloque.get("resumen") or {}
+        filas.append(
+            {
+                "candidato": clave,
+                "ganador": clave == ganador,
+                "macro_f1": resumen.get("macro_f1") or {},
+                "recall_riesgo_critico": resumen.get("recall_riesgo_critico") or {},
+            }
+        )
+    seleccion = metadata.get("seleccion") or {}
+    mejor = (seleccion.get("mejor_macro_f1") or {}).get("valor")
+    ancho = (seleccion.get("banda") or {}).get("ancho")
+    if mejor is None or ancho is None:
+        medias = [
+            f["macro_f1"].get("media") for f in filas if f["macro_f1"].get("media") is not None
+        ]
+        desvios = [
+            f["macro_f1"].get("desvio") for f in filas if f["macro_f1"].get("desvio") is not None
+        ]
+        mejor = max(medias) if medias else None
+        # Sin ningun desvio medido no hay banda que dibujar: un ancho cero la
+        # achicaria a un punto y la lamina afirmaria que no hubo empate.
+        ancho = max(desvios) if desvios else None
+    banda = None if mejor is None or ancho is None else (mejor - ancho, mejor)
+    return {"candidatos": filas, "banda": banda}
+
+
 def _bloque_del_modelo_elegido(reporte: dict, metadata: dict) -> dict:
     """El bloque del modelo que gano la comparacion.
 
     El reporte guarda un bloque por modelo candidato. Graficar el que aparece
     primero mostraria un modelo que quiza no es el que quedo sirviendo.
     """
-    elegido = metadata.get("modelo")
+    elegido = candidato_elegido(metadata)
     if elegido and elegido in reporte:
         return reporte[elegido]
     primero = next(iter(reporte.values()), {})
@@ -260,6 +352,187 @@ def clases_del_bloque(bloque: dict, metadata: dict) -> list[str]:
         "No hay nombres de clases ni en el reporte de validacion ni en metadata.json: "
         "no se puede rotular la matriz de confusion. Reentrena para regenerar los reportes."
     )
+
+
+def etiqueta_de_clase(clase: str) -> str:
+    """El nombre legible de la clase; una clase desconocida queda como vino."""
+    return ETIQUETA_CLASE.get(clase, clase)
+
+
+def ordenar_por_severidad(clases: list[str]) -> list[str]:
+    """Las clases de la mas grave a la mejor; las que no conoce, al final y en su orden."""
+    conocidas = [c for c in ORDEN_SEVERIDAD if c in clases]
+    return conocidas + [c for c in clases if c not in ORDEN_SEVERIDAD]
+
+
+def reordenar_matriz(
+    matriz: list[list[int]], clases: list[str], orden: list[str] | tuple[str, ...]
+) -> tuple[list[list[int]], list[str]]:
+    """La misma matriz con filas y columnas permutadas a la vez.
+
+    Permutar solo las filas (o solo los rotulos) dejaria la diagonal fuera de la
+    diagonal: los aciertos se leerian como confusiones.
+    """
+    nuevas = [c for c in orden if c in clases] + [c for c in clases if c not in orden]
+    indice = [clases.index(c) for c in nuevas]
+    return [[matriz[i][j] for j in indice] for i in indice], nuevas
+
+
+def matriz_normalizada_por_fila(matriz: list[list[int]]) -> list[list[float | None]]:
+    """Cada celda como porcentaje de su clase real.
+
+    Una clase sin casos reales no tiene porcentaje: su fila queda en `None`, no en
+    cero. Un cero diria que el modelo no acerto ninguno de sus casos, y no tuvo
+    ninguno que acertar.
+    """
+    normalizada: list[list[float | None]] = []
+    for fila in matriz:
+        total = sum(fila)
+        normalizada.append([100 * n / total if total else None for n in fila])
+    return normalizada
+
+
+def umbrales_de_confianza(puntos: int = PUNTOS_DE_UMBRAL) -> list[float]:
+    """Los umbrales de 0 a 1, equiespaciados. Como fraccion exacta: `i / 100`."""
+    return [i / (puntos - 1) for i in range(puntos)]
+
+
+def curvas_por_umbral(
+    reales: list[str],
+    probas: dict[str, list[float]],
+    clases: list[str],
+    umbrales: list[float],
+) -> dict[str, dict[str, list[float]]]:
+    """Precision y recall de cada clase, uno contra el resto, a cada umbral.
+
+    A un umbral `t`, la clase `c` "se predice" en las filas con `P(c|x) >= t`:
+
+    - precision_c(t) = aciertos / filas que pasan el umbral;
+    - recall_c(t) = aciertos / casos reales de `c`.
+
+    Donde ninguna fila pasa el umbral la precision **no existe** y vale NaN: no
+    hubo ninguna prediccion que pudiera estar bien o mal. Dibujarla como cero
+    contaria una caida que no ocurrio, y es la regla de `puntos_medidos` llevada a
+    las curvas. Por la misma razon una clase sin casos reales no tiene recall.
+
+    Esto no es la regla de decision del modelo —que elige la clase de mayor
+    probabilidad—: con umbrales bajos una fila cuenta para varias clases a la vez.
+    Es la pregunta "si solo aviso cuando estoy al menos asi de seguro, cuanto
+    acierto y cuantos se me escapan", que es la que la lamina contesta.
+    """
+    import numpy as np
+
+    reales_arr = np.asarray(reales)
+    curvas: dict[str, dict[str, list[float]]] = {"precision": {}, "recall": {}}
+    for clase in clases:
+        proba = np.asarray(probas[clase], dtype=float)
+        positivos = reales_arr == clase
+        n_positivos = int(positivos.sum())
+        precision, recall = [], []
+        for umbral in umbrales:
+            pasa = proba >= umbral
+            n_pasa = int(pasa.sum())
+            aciertos = int((pasa & positivos).sum())
+            precision.append(aciertos / n_pasa if n_pasa else math.nan)
+            recall.append(aciertos / n_positivos if n_positivos else math.nan)
+        curvas["precision"][clase] = precision
+        curvas["recall"][clase] = recall
+    return curvas
+
+
+def media_entre_clases(series: dict[str, list[float]]) -> list[float]:
+    """La media de las clases en cada punto, solo donde **todas** midieron.
+
+    Donde una clase se corta, la media tambien (NaN). Promediar las que quedan
+    hacia saltar la linea: al salir `RiesgoCritico` —la peor— la media subia de
+    golpe, y eso se leia como una mejora del modelo cuando era una clase menos en
+    la cuenta.
+    """
+    largo = len(next(iter(series.values()), []))
+    medias = []
+    for k in range(largo):
+        valores = [v[k] for v in series.values()]
+        if not valores or any(math.isnan(x) for x in valores):
+            medias.append(math.nan)
+        else:
+            medias.append(sum(valores) / len(valores))
+    return medias
+
+
+def _a_float(valor: float | None) -> float:
+    return math.nan if valor is None else float(valor)
+
+
+def serie_de_entrenamiento(registro: list[dict], metrica: str) -> tuple[list[int], list[float]]:
+    """Las iteraciones y los valores de una metrica, con los `None` como hueco (NaN).
+
+    matplotlib corta la linea en un NaN. Un `None` pasado a cero la haria caer a
+    una perdida perfecta en la iteracion que no se registro.
+    """
+    return (
+        [int(e["iteracion"]) for e in registro],
+        [_a_float(e.get(metrica)) for e in registro],
+    )
+
+
+def leer_registro_entrenamiento(modelo_dir: Path) -> dict | None:
+    """El registro de iteraciones, o `None` si el modelo es de antes de que existiera."""
+    path = modelo_dir / REGISTRO_ENTRENAMIENTO
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def leer_predicciones(modelo_dir: Path, modelo: str) -> Any:
+    """Las predicciones fuera de pliegue de un modelo, o `None` si no estan.
+
+    Devuelve un `DataFrame`; pandas se importa aca para que leer los JSON no lo
+    necesite.
+    """
+    path = modelo_dir / PREDICCIONES_FUERA_DE_PLIEGUE
+    if not path.exists():
+        return None
+    import pandas as pd
+
+    tabla = pd.read_parquet(path)
+    if "modelo" in tabla.columns:
+        tabla = tabla[tabla["modelo"] == modelo].reset_index(drop=True)
+    return tabla if len(tabla) else None
+
+
+def _registros_del_modelo(
+    registro: dict | None, modelo: str, clave: str = "registro"
+) -> tuple[list[dict], list[list[dict]]]:
+    """El registro del modelo final y los de cada pliegue, solo los que tienen datos.
+
+    `clave` elige cual: `registro` (iteraciones del GBT) o `registro_oob` (la
+    evaluacion fuera de bolsa del Random Forest).
+    """
+    if not registro:
+        return [], []
+    final = registro.get("modelo_final") or {}
+    del_final = (final.get(clave) or []) if final.get("modelo") == modelo else []
+    pliegues = ((registro.get("modelos") or {}).get(modelo) or {}).get("pliegues") or []
+    return del_final, [p[clave] for p in pliegues if p.get(clave)]
+
+
+def serie_oob(registro: list[dict], metrica: str) -> tuple[list[int], list[float]]:
+    """Arboles y valor fuera de bolsa, con los `None` como hueco."""
+    return [int(e["arboles"]) for e in registro], [_a_float(e.get(metrica)) for e in registro]
+
+
+def _curvas_del_modelo(
+    predicciones: Any, clases: list[str]
+) -> tuple[dict[str, dict[str, list[float]]], list[float]] | None:
+    if predicciones is None:
+        return None
+    faltan = [c for c in clases if c not in predicciones.columns]
+    if faltan:
+        logger.warning("Las predicciones fuera de pliegue no traen la probabilidad de %s", faltan)
+        return None
+    umbrales = umbrales_de_confianza()
+    probas = {c: predicciones[c].astype(float).tolist() for c in clases}
+    return curvas_por_umbral(predicciones["real"].tolist(), probas, clases, umbrales), umbrales
 
 
 def _leer_json(path: Path) -> dict:
@@ -547,10 +820,249 @@ def _lamina_importancias(plt, pares: list[tuple[str, float]], out: Path) -> None
     plt.close(fig)
 
 
-def generar_figuras(modelo_dir: Path, salida: Path) -> list[Path]:
-    """Escribe las seis laminas a partir de los reportes de `modelo_dir`.
+def _lamina_matriz_normalizada(plt, matriz: list[list[int]], clases: list[str], out: Path) -> None:
+    conteos, orden = reordenar_matriz(matriz, clases, ORDEN_SEVERIDAD)
+    porcentajes = matriz_normalizada_por_fila(conteos)
+    imagen = [[math.nan if v is None else v for v in fila] for fila in porcentajes]
+    etiquetas = [etiqueta_de_clase(c) for c in orden]
 
-    Todo o nada, de verdad: las seis se dibujan en una carpeta temporal y recien
+    fig, ax = plt.subplots(figsize=(7.5, 6.2))
+    mapa = ax.imshow(imagen, cmap="Blues", vmin=0, vmax=100)
+    fig.colorbar(mapa, ax=ax, fraction=0.046, pad=0.04, label="% de la clase real")
+
+    ax.set_xticks(range(len(orden)), etiquetas, rotation=30, ha="right")
+    ax.set_yticks(range(len(orden)), etiquetas)
+    ax.set_xlabel("Clase predicha")
+    ax.set_ylabel("Clase real")
+    ax.set_title(
+        "Matriz de confusión normalizada por clase real\n(fuera de muestra, suma de los pliegues)"
+    )
+
+    for i, fila in enumerate(porcentajes):
+        for j, pct in enumerate(fila):
+            texto = "n/d" if pct is None else f"{pct:.1f}%\n({conteos[i][j]})"
+            claro = pct is not None and pct > 50
+            ax.text(j, i, texto, ha="center", va="center", color="white" if claro else "black")
+
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+
+_PANELES_ENTRENAMIENTO = (
+    ("training_loss", "Pérdida en entrenamiento", "Pérdida (log loss)"),
+    ("validation_loss", "Pérdida en el conjunto de parada temprana", "Pérdida (log loss)"),
+    ("training_accuracy", "Accuracy en entrenamiento", "Accuracy"),
+    ("validation_accuracy", "Accuracy en el conjunto de parada temprana", "Accuracy"),
+)
+
+
+def _lamina_resultados_entrenamiento(
+    plt, final: list[dict], pliegues: list[list[dict]], iteraciones: dict, modelo: str, out: Path
+) -> None:
+    fig, ejes = plt.subplots(2, 2, figsize=(11, 7.5), sharex=True)
+    detencion = iteraciones.get("iteraciones_entrenadas")
+    mejor = iteraciones.get("iteracion_mejor_validacion")
+
+    for eje, (metrica, titulo, eje_y) in zip(ejes.flat, _PANELES_ENTRENAMIENTO, strict=True):
+        for k, registro in enumerate(pliegues):
+            x, y = serie_de_entrenamiento(registro, metrica)
+            eje.plot(
+                x,
+                y,
+                color=COLOR_NEUTRO,
+                linewidth=0.9,
+                alpha=0.45,
+                label="Pliegues de la validación cruzada" if k == 0 else None,
+            )
+        if final:
+            x, y = serie_de_entrenamiento(final, metrica)
+            eje.plot(x, y, color="#2166ac", linewidth=2.2, label="Modelo final")
+        if detencion is not None:
+            eje.axvline(
+                detencion,
+                color="#b2182b",
+                linestyle="--",
+                linewidth=1,
+                label=f"Detención del modelo final ({detencion})",
+            )
+        if mejor is not None and mejor != detencion:
+            eje.axvline(
+                mejor,
+                color="#b2182b",
+                linestyle=":",
+                linewidth=1,
+                label=f"Mejor pérdida de validación ({mejor})",
+            )
+        eje.set_title(titulo, fontsize=10)
+        eje.set_ylabel(eje_y)
+        eje.grid(alpha=0.3)
+    for eje in ejes[1]:
+        eje.set_xlabel("Iteración (árboles por clase)")
+    ejes[0][0].legend(fontsize=7, loc="upper right")
+    fig.suptitle(f"Resultados del entrenamiento: {modelo}")
+
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+
+def _lamina_resultados_oob(
+    plt, final: list[dict], pliegues: list[list[dict]], modelo: str, out: Path
+) -> None:
+    hay_perdida = any(e.get("oob_loss") is not None for r in [final, *pliegues] for e in r)
+    paneles = [("oob_accuracy", "Accuracy fuera de bolsa (OOB)", "Accuracy OOB")]
+    if hay_perdida:
+        paneles.insert(0, ("oob_loss", "Pérdida fuera de bolsa (OOB)", "Pérdida OOB (log loss)"))
+    fig, ejes = plt.subplots(1, len(paneles), figsize=(5.5 * len(paneles), 4.8), squeeze=False)
+
+    for eje, (metrica, titulo, eje_y) in zip(ejes[0], paneles, strict=True):
+        for k, registro in enumerate(pliegues):
+            x, y = serie_oob(registro, metrica)
+            eje.plot(
+                x,
+                y,
+                color=COLOR_NEUTRO,
+                linewidth=0.9,
+                alpha=0.45,
+                marker=".",
+                label="Pliegues de la validación cruzada" if k == 0 else None,
+            )
+        if final:
+            x, y = serie_oob(final, metrica)
+            eje.plot(x, y, color="#2166ac", linewidth=2.2, marker="o", label="Modelo final")
+        eje.set_title(titulo, fontsize=10)
+        eje.set_xlabel("Número de árboles")
+        eje.set_ylabel(eje_y)
+        eje.grid(alpha=0.3)
+    ejes[0][0].legend(fontsize=7)
+    fig.suptitle(
+        f"Evolución del entrenamiento fuera de bolsa: {modelo}\n"
+        "(OOB muestrea filas, no estudiantes: no es una medición sobre estudiantes no vistos)",
+        fontsize=10,
+    )
+
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+
+def _lamina_comparacion(plt, resumen: dict, out: Path) -> None:
+    filas = resumen["candidatos"]
+    nombres = [f["candidato"] for f in filas]
+    y = list(range(len(filas)))[::-1]
+    paneles = (
+        ("macro_f1", "Macro F1 (media ± desvío entre pliegues)"),
+        ("recall_riesgo_critico", "Recall de Riesgo crítico (media ± desvío)"),
+    )
+    fig, ejes = plt.subplots(1, 2, figsize=(11, 0.9 * len(filas) + 2.2), sharey=True)
+    for eje, (metrica, titulo) in zip(ejes, paneles, strict=True):
+        if metrica == "macro_f1" and resumen["banda"] is not None:
+            bajo, alto = resumen["banda"]
+            eje.axvspan(bajo, alto, color="#fddbc7", alpha=0.6, label="Banda de empate")
+        for fila, posicion in zip(filas, y, strict=True):
+            medida = fila[metrica]
+            media = medida.get("media")
+            if media is None:
+                eje.text(0.02, posicion, "n/d", va="center", color=COLOR_NEUTRO)
+                continue
+            color = "#b2182b" if fila["ganador"] else "#2166ac"
+            desvio = medida.get("desvio")
+            eje.errorbar(
+                media,
+                posicion,
+                # Sin desvio medido no hay barra: una de ancho cero se leeria
+                # como una medicion estable. Y la barra no baja de cero, porque
+                # un recall negativo no existe.
+                xerr=None if desvio is None else [[min(desvio, media)], [desvio]],
+                fmt="D" if fila["ganador"] else "o",
+                color=color,
+                capsize=4,
+                markersize=8 if fila["ganador"] else 6,
+            )
+            texto = f"{media:.3f}"
+            if medida.get("pliegues") is not None and metrica == "recall_riesgo_critico":
+                texto += f" ({medida['pliegues']} pliegues)"
+            if desvio is None:
+                texto += " (sin desvío)"
+            eje.annotate(
+                texto,
+                (media, posicion),
+                textcoords="offset points",
+                xytext=(0, 9),
+                ha="left",
+                fontsize=8,
+            )
+        eje.set_xlim(0, 1)
+        eje.set_title(titulo, fontsize=10)
+        eje.grid(axis="x", alpha=0.3)
+    ejes[0].set_yticks(
+        y,
+        [
+            f"{n}{'  ← ganador' if f['ganador'] else ''}"
+            for n, f in zip(nombres, filas, strict=True)
+        ],
+    )
+    ejes[0].legend(fontsize=8, loc="lower left")
+    fig.suptitle("Comparación de candidatos sobre estudiantes no vistos", fontsize=11)
+
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+
+def _lamina_curva_confianza(
+    plt,
+    curvas: dict[str, list[float]],
+    umbrales: list[float],
+    clases: list[str],
+    metrica: str,
+    out: Path,
+) -> None:
+    fig, ax = plt.subplots(figsize=(8, 5.5))
+    for clase in ordenar_por_severidad(clases):
+        ax.plot(
+            umbrales,
+            curvas[clase],
+            color=COLOR_POR_CLASE.get(clase, COLOR_NEUTRO),
+            linewidth=1.3,
+            label=etiqueta_de_clase(clase),
+        )
+
+    media = media_entre_clases(curvas)
+    rotulo = "Todas las clases"
+    if metrica == "Precisión":
+        medidos = [(v, t) for v, t in zip(media, umbrales, strict=True) if not math.isnan(v)]
+        if medidos:
+            valor, umbral = max(medidos)
+            rotulo += f" ({valor:.2f} con confianza {umbral:.2f})"
+    elif media and not math.isnan(media[0]):
+        rotulo += f" ({media[0]:.2f} con confianza 0.00)"
+    ax.plot(umbrales, media, color="#222222", linewidth=3, label=rotulo)
+
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1.05)
+    ax.set_xlabel("Confianza (probabilidad asignada a la clase)")
+    ax.set_ylabel(metrica)
+    ax.set_title(f"Curva {metrica.lower()}–confianza (fuera de muestra)")
+    ax.grid(alpha=0.3)
+    # Esquinas sin curvas: la precision arranca abajo a la izquierda y la de la
+    # clase critica cae a cero abajo a la derecha; el recall baja hacia la derecha.
+    ax.legend(fontsize=8, loc="upper left" if metrica == "Precisión" else "upper right")
+
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+
+def generar_figuras(modelo_dir: Path, salida: Path) -> list[Path]:
+    """Escribe las laminas a partir de los reportes de `modelo_dir`.
+
+    Las ocho de `ARCHIVOS_ESPERADOS` salen siempre. Las de `ARCHIVOS_OPCIONALES`
+    salen si el entrenamiento dejo su entrada, y si no se omiten con un aviso: un
+    modelo entrenado antes de que se persistieran no puede voltear las demas.
+
+    Todo o nada, de verdad: las que se dibujan van a una carpeta temporal y recien
     al terminar se mueven a destino. Escribiendo directo, una falla en la cuarta
     dejaria tres figuras nuevas junto a tres viejas, y el documento citaria
     graficos de dos corridas distintas creyendo que son la misma.
@@ -583,6 +1095,28 @@ def generar_figuras(modelo_dir: Path, salida: Path) -> list[Path]:
             f"cruzada antes de generar las figuras."
         )
 
+    elegido = candidato_elegido(metadata) or bloque.get("modelo") or ""
+    registro = leer_registro_entrenamiento(modelo_dir)
+    final, de_pliegues = _registros_del_modelo(registro, elegido)
+    final_oob, de_pliegues_oob = _registros_del_modelo(registro, elegido, "registro_oob")
+    iteraciones = ((registro or {}).get("modelo_final") or {}).get("iteraciones") or {}
+    curvas = _curvas_del_modelo(leer_predicciones(modelo_dir, elegido), clases)
+    hay_evolucion = bool(final or de_pliegues or final_oob or de_pliegues_oob)
+    if not hay_evolucion:
+        logger.warning(
+            "Se omite resultados_entrenamiento.png: %s no trae iteraciones de %s "
+            "(falta el archivo, o el modelo no registra iteraciones). Reentrena con train.",
+            REGISTRO_ENTRENAMIENTO,
+            elegido,
+        )
+    if curvas is None:
+        logger.warning(
+            "Se omiten las curvas de confianza: falta %s con las probabilidades de %s. "
+            "Reentrena con train.",
+            PREDICCIONES_FUERA_DE_PLIEGUE,
+            elegido,
+        )
+
     salida.mkdir(parents=True, exist_ok=True)
 
     # La temporal cuelga de la propia salida para caer en el mismo sistema de
@@ -590,6 +1124,11 @@ def generar_figuras(modelo_dir: Path, salida: Path) -> list[Path]:
     with tempfile.TemporaryDirectory(dir=salida) as tmp:
         taller = Path(tmp)
         borrador = {nombre: taller / nombre for nombre in ARCHIVOS_ESPERADOS}
+        if hay_evolucion:
+            borrador["resultados_entrenamiento.png"] = taller / "resultados_entrenamiento.png"
+        if curvas is not None:
+            for nombre in ("curva_precision_confianza.png", "curva_recall_confianza.png"):
+                borrador[nombre] = taller / nombre
 
         _lamina_matriz_confusion(plt, matriz, clases, borrador["matriz_confusion.png"])
         _lamina_distribucion(
@@ -608,12 +1147,49 @@ def generar_figuras(modelo_dir: Path, salida: Path) -> list[Path]:
         _lamina_importancias(
             plt, importancias_ordenadas(metadata), borrador["importancia_variables.png"]
         )
+        _lamina_matriz_normalizada(
+            plt, matriz, clases, borrador["matriz_confusion_normalizada.png"]
+        )
+        _lamina_comparacion(
+            plt, resumen_de_candidatos(reporte, metadata), borrador["comparacion_candidatos.png"]
+        )
+        if final or de_pliegues:
+            _lamina_resultados_entrenamiento(
+                plt,
+                final,
+                de_pliegues,
+                iteraciones,
+                elegido,
+                borrador["resultados_entrenamiento.png"],
+            )
+        elif hay_evolucion:
+            _lamina_resultados_oob(
+                plt, final_oob, de_pliegues_oob, elegido, borrador["resultados_entrenamiento.png"]
+            )
+        if curvas is not None:
+            por_umbral, umbrales = curvas
+            _lamina_curva_confianza(
+                plt,
+                por_umbral["precision"],
+                umbrales,
+                clases,
+                "Precisión",
+                borrador["curva_precision_confianza.png"],
+            )
+            _lamina_curva_confianza(
+                plt,
+                por_umbral["recall"],
+                umbrales,
+                clases,
+                "Recall",
+                borrador["curva_recall_confianza.png"],
+            )
 
         escritas = []
         for nombre, origen in borrador.items():
-            final = salida / nombre
-            origen.replace(final)
-            escritas.append(final)
+            destino = salida / nombre
+            origen.replace(destino)
+            escritas.append(destino)
 
     logger.info("Escritas %d figuras en %s", len(escritas), salida)
     return escritas
@@ -629,10 +1205,29 @@ def resumen_para_documentar(modelo_dir: Path) -> dict[str, Any]:
     metadata = _leer_json(modelo_dir / METADATA)
     bloque = _bloque_del_modelo_elegido(reporte, metadata)
     clases = clases_del_bloque(bloque, metadata)
-    medidas = metricas_por_clase(matriz_confusion_acumulada(bloque), clases)
+    matriz = matriz_confusion_acumulada(bloque)
+    medidas = metricas_por_clase(matriz, clases)
+    conteos, orden = reordenar_matriz(matriz, clases, ORDEN_SEVERIDAD)
+    elegido = candidato_elegido(metadata) or bloque.get("modelo") or ""
+    registro = leer_registro_entrenamiento(modelo_dir) or {}
+    final = dict(registro.get("modelo_final") or {})
+    ultima = (final.pop("registro", None) or [None])[-1]
+    ultima_oob = (final.pop("registro_oob", None) or [None])[-1]
+    curvas = _curvas_del_modelo(leer_predicciones(modelo_dir, elegido), clases)
 
+    candidatos = resumen_de_candidatos(reporte, metadata)
     return {
         "modelo": metadata.get("modelo"),
+        "candidato": elegido,
+        "ponderacion_clases": metadata.get("ponderacion_clases"),
+        "seleccion": metadata.get("seleccion"),
+        "candidatos": {
+            c["candidato"]: {
+                m: (reporte[c["candidato"]].get("resumen") or {}).get(m)
+                for m in ("accuracy", "linea_base", "macro_f1", "recall_riesgo_critico")
+            }
+            for c in candidatos["candidatos"]
+        },
         "n_filas": metadata.get("n_filas"),
         "n_estudiantes": metadata.get("n_estudiantes"),
         "n_pliegues": bloque.get("n_pliegues"),
@@ -644,5 +1239,45 @@ def resumen_para_documentar(modelo_dir: Path) -> dict[str, Any]:
             "recall_riesgo_critico": medidas["recall_riesgo_critico"],
             "linea_base": medidas["linea_base"],
             "por_clase": medidas["por_clase"],
+            "promedios": promedios_por_clase(medidas["por_clase"]),
+            "matriz": {
+                "clases": orden,
+                "conteos": conteos,
+                "porcentaje_por_fila": matriz_normalizada_por_fila(conteos),
+            },
         },
+        "particiones_por_pliegue": bloque.get("particiones"),
+        "modelo_final": (
+            {**final, "ultima_iteracion": ultima, "ultimo_punto_oob": ultima_oob} if final else None
+        ),
+        "curvas_confianza": _resumen_de_curvas(curvas, clases),
     }
+
+
+def _resumen_de_curvas(curvas: tuple | None, clases: list[str]) -> dict | None:
+    """Los puntos de las curvas que el texto cita: el umbral 0.5 y la mejor precision."""
+    if curvas is None:
+        return None
+    por_umbral, umbrales = curvas
+    medio = umbrales.index(0.5)
+
+    def punto(valor: float) -> float | None:
+        return None if math.isnan(valor) else round(valor, 4)
+
+    resumen: dict[str, dict] = {}
+    series = {c: (por_umbral["precision"][c], por_umbral["recall"][c]) for c in clases}
+    series["todas_las_clases"] = (
+        media_entre_clases(por_umbral["precision"]),
+        media_entre_clases(por_umbral["recall"]),
+    )
+    for nombre, (precision, recall) in series.items():
+        medidos = [(v, t) for v, t in zip(precision, umbrales, strict=True) if not math.isnan(v)]
+        mejor = max(medidos) if medidos else None
+        resumen[nombre] = {
+            "precision_en_0.5": punto(precision[medio]),
+            "recall_en_0.5": punto(recall[medio]),
+            "recall_en_0": punto(recall[0]),
+            "precision_maxima": None if mejor is None else round(mejor[0], 4),
+            "umbral_de_precision_maxima": None if mejor is None else mejor[1],
+        }
+    return resumen
